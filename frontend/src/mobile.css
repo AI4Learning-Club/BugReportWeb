@@ -1,0 +1,403 @@
+@media (max-width: 720px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  a {
+    overflow-wrap: anywhere;
+  }
+
+  .app-shell {
+    display: block;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    height: auto;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 22px rgba(23, 33, 43, 0.14);
+  }
+
+  .brand {
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .brand span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    justify-content: end;
+  }
+
+  .profile div {
+    max-width: 120px;
+    text-align: right;
+  }
+
+  .profile strong,
+  .profile span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav {
+    position: fixed;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    z-index: 30;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid rgba(215, 225, 234, 0.22);
+    border-radius: 8px;
+    background: #17212b;
+    box-shadow: 0 14px 34px rgba(23, 33, 43, 0.24);
+  }
+
+  .nav a {
+    min-width: 0;
+    min-height: 50px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 7px 4px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: center;
+  }
+
+  .nav a::before {
+    width: 22px;
+    height: 3px;
+    transform: scaleX(0.4);
+  }
+
+  .nav a.active::before {
+    transform: scaleX(1);
+  }
+
+  .nav a:hover,
+  .nav a.active {
+    transform: none;
+  }
+
+  .content {
+    gap: 14px;
+    padding: 18px 12px 128px;
+  }
+
+  .page-header {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .page-header h1,
+  .auth-panel h1 {
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+
+  .page-header .primary,
+  .page-header .ghost,
+  .page-header .actions {
+    width: 100%;
+  }
+
+  .toolbar,
+  .actions,
+  .editor-actions,
+  .subsection-header,
+  .meta-row,
+  .stats {
+    align-items: stretch;
+  }
+
+  .toolbar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar select {
+    max-width: none;
+  }
+
+  .primary,
+  .ghost {
+    min-width: 0;
+  }
+
+  .actions .primary,
+  .actions .ghost {
+    flex: 1 1 140px;
+  }
+
+  .grid.two,
+  .detail-grid,
+  .admin-grid,
+  .role-row,
+  .system-row,
+  .inline-upload,
+  .inline-edit {
+    grid-template-columns: 1fr;
+  }
+
+  .panel,
+  .editor-panel,
+  .panel-form,
+  .table-wrap,
+  .auth-panel {
+    border-radius: 8px;
+  }
+
+  .panel,
+  .editor-panel,
+  .panel-form {
+    padding: 14px;
+  }
+
+  .editor-panel {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .editor-panel input,
+  .editor-panel select,
+  .editor-panel textarea {
+    padding: 9px 10px;
+  }
+
+  .editor-panel textarea {
+    min-height: 72px;
+  }
+
+  .editor-shell {
+    width: 100%;
+  }
+
+  .editor-intro {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .editor-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .editor-actions .primary,
+  .editor-actions .ghost {
+    width: 100%;
+  }
+
+  .table-wrap {
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .table-wrap table,
+  .table-wrap thead,
+  .table-wrap tbody,
+  .table-wrap tr,
+  .table-wrap th,
+  .table-wrap td {
+    display: block;
+  }
+
+  .table-wrap table {
+    min-width: 0;
+  }
+
+  .table-wrap thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .table-wrap tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .table-wrap tr {
+    border: 1px solid #e1e7ee;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+  }
+
+  .table-wrap td {
+    display: grid;
+    grid-template-columns: minmax(82px, 0.38fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #eef2f5;
+    overflow-wrap: anywhere;
+  }
+
+  .table-wrap td:last-child {
+    border-bottom: 0;
+  }
+
+  .table-wrap td::before {
+    content: attr(data-label);
+    color: #718191;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .table-wrap td.actions {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .table-wrap td.actions::before {
+    flex: 0 0 82px;
+    padding-top: 8px;
+  }
+
+  .table-wrap td.actions .ghost,
+  .table-wrap td.actions .primary {
+    flex: 1 1 96px;
+  }
+
+  .user-table tbody {
+    gap: 16px;
+  }
+
+  .user-table tr {
+    border-radius: 18px;
+    overflow: hidden;
+  }
+
+  .user-table td {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px;
+  }
+
+  .user-table td::before {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .user-summary {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .user-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .user-inline-edit {
+    grid-template-columns: 1fr auto;
+  }
+
+  .user-meta-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .user-chip,
+  .user-state-badge,
+  .admin-role-label {
+    min-height: 34px;
+  }
+
+  .user-admin-toggle {
+    width: fit-content;
+  }
+
+  .user-actions {
+    justify-content: stretch;
+  }
+
+  tbody tr:hover td {
+    background: transparent;
+  }
+
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+    width: 100%;
+  }
+
+  .tabs button {
+    min-width: 0;
+  }
+
+  .screenshots {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  }
+
+  .runtime-list header {
+    align-items: stretch;
+  }
+
+  .activity-change-row {
+    grid-template-columns: 1fr;
+  }
+
+  .role-row .icon-button,
+  .system-row .icon-button {
+    width: 40px;
+    height: 40px;
+  }
+
+  .system-summary {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .permission-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-role-label {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .auth-page,
+  .center-screen {
+    padding: 16px;
+  }
+}

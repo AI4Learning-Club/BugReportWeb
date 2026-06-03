@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Permission {
+  CREATE_BUG
+  RETEST_BUG
+  MARK_BUG_FIXED
+  ADD_BUG_EVIDENCE
+  MANAGE_SYSTEMS
+  MANAGE_ROLES
+  MANAGE_USERS
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+}
+
+enum BugStatus {
+  OPEN
+  FIXED
+}
+
+enum BugActivityType {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  SCREENSHOT_ADDED
+  SCREENSHOT_REMOVED
+  RUNTIME_INFO_ADDED
+  RUNTIME_INFO_UPDATED
+  RUNTIME_INFO_REMOVED
+  RETEST_RECORDED
+}
+
+enum RetestResult {
+  APPEARED
+  NOT_APPEARED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Role {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  permissions Permission[]
+  users       User[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model User {
+  id            String           @id @default(cuid())
+  username      String           @unique
+  passwordHash  String
+  displayName   String
+  status        UserStatus       @default(PENDING)
+  roleId        String?
+  role          Role?            @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  isAdmin       Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  createdBugs   Bug[]            @relation("BugCreator")
+  fixedBugs     Bug[]            @relation("BugFixer")
+  screenshots   BugScreenshot[]
+  runtimeInfos  BugRuntimeInfo[]
+  retests       BugRetest[]
+  bugActivities BugActivity[]
+}
+
+model TrackedSystem {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  owner       String?
+  versionInfo String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  bugs        Bug[]
+}
+
+model Bug {
+  id           String           @id @default(cuid())
+  systemId     String
+  system       TrackedSystem    @relation(fields: [systemId], references: [id])
+  creatorId    String
+  creator      User             @relation("BugCreator", fields: [creatorId], references: [id])
+  title        String
+  description  String
+  severity     Severity         @default(MEDIUM)
+  environment  String?
+  steps        String?
+  expected     String?
+  actual       String?
+  status       BugStatus        @default(OPEN)
+  fixedAt      DateTime?
+  fixedById    String?
+  fixedBy      User?            @relation("BugFixer", fields: [fixedById], references: [id])
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  screenshots  BugScreenshot[]
+  runtimeInfos BugRuntimeInfo[]
+  retests      BugRetest[]
+  activities   BugActivity[]
+
+  @@index([systemId])
+  @@index([creatorId])
+  @@index([status])
+}
+
+model BugActivity {
+  id         String          @id @default(cuid())
+  bugId      String
+  bug        Bug             @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  actorId    String
+  actor      User            @relation(fields: [actorId], references: [id])
+  type       BugActivityType
+  note       String?
+  fromStatus BugStatus?
+  toStatus   BugStatus?
+  changes    Json?
+  context    Json?
+  createdAt  DateTime        @default(now())
+
+  @@index([bugId, createdAt])
+  @@index([actorId])
+  @@index([type])
+}
+
+model BugScreenshot {
+  id           String   @id @default(cuid())
+  bugId        String
+  bug          Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  uploaderId   String
+  uploader     User     @relation(fields: [uploaderId], references: [id])
+  originalName String
+  storedName   String
+  path         String
+  mimeType     String
+  sizeBytes    Int
+  caption      String?
+  createdAt    DateTime @default(now())
+
+  @@index([bugId])
+}
+
+model BugRuntimeInfo {
+  id          String   @id @default(cuid())
+  bugId       String
+  bug         Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  title       String
+  environment String?
+  logText     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([bugId])
+}
+
+model BugRetest {
+  id        String       @id @default(cuid())
+  bugId     String
+  bug       Bug          @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  result    RetestResult
+  note      String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([bugId, userId])
+  @@index([bugId])
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@bug-report-web/backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node --project tsconfig.json src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.24",
+    "@nestjs/core": "^11.1.24",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/platform-express": "^11.1.24",
+    "@prisma/client": "^6.8.2",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^17.2.1",
+    "express": "^4.21.2",
+    "multer": "^2.1.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.2",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^22.15.29",
+    "@types/uuid": "^10.0.0",
+    "prisma": "^6.8.2",
+    "tsx": "^4.19.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  }
+}

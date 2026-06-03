@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+backend/uploads/*
+!backend/uploads/.gitkeep
+!backend/uploads/bug-screenshots/
+backend/uploads/bug-screenshots/*
+!backend/uploads/bug-screenshots/.gitkeep
+frontend/dist/
