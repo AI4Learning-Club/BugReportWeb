@@ -613,10 +613,14 @@ function BugDetailPage() {
   const [runtime, setRuntime] = useState({ title: '', environment: '', logText: '' });
   const [file, setFile] = useState<File | null>(null);
   const [retest, setRetest] = useState({ result: 'APPEARED', note: '' });
-  const [statusNote, setStatusNote] = useState('');
-  const [deleteReason, setDeleteReason] = useState('');
   const [activeRuntimeIndex, setActiveRuntimeIndex] = useState(0);
   const [showRuntimeForm, setShowRuntimeForm] = useState(false);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [statusDialogSubmitting, setStatusDialogSubmitting] = useState(false);
+  const [statusDialogError, setStatusDialogError] = useState('');
+  const [softDeleteOpen, setSoftDeleteOpen] = useState(false);
+  const [softDeleteSubmitting, setSoftDeleteSubmitting] = useState(false);
+  const [softDeleteError, setSoftDeleteError] = useState('');
   const [permanentDeleteOpen, setPermanentDeleteOpen] = useState(false);
   const [permanentDeleteSubmitting, setPermanentDeleteSubmitting] = useState(false);
   const [permanentDeleteError, setPermanentDeleteError] = useState('');
@@ -690,6 +694,32 @@ function BugDetailPage() {
                 <Pencil size={16} />编辑
               </Link>
             )}
+            {canChangeStatus && !bug.deletedAt && (
+              <button
+                className="primary compact"
+                type="button"
+                onClick={() => {
+                  setStatusDialogOpen(true);
+                  setStatusDialogError('');
+                }}
+              >
+                <CheckCircle2 size={16} />
+                {statusActionLabel}
+              </button>
+            )}
+            {canSoftDelete && (
+              <button
+                className="ghost compact danger"
+                type="button"
+                onClick={() => {
+                  setSoftDeleteOpen(true);
+                  setSoftDeleteError('');
+                }}
+              >
+                <Trash2 size={16} />
+                移入回收站
+              </button>
+            )}
           </div>
         )}
       />
@@ -721,97 +751,38 @@ function BugDetailPage() {
       <section className="bug-detail-layout">
         <div className="bug-detail-main">
           <section className="detail-grid bug-detail-top">
-            <div className="panel">
-              <div className="meta-row">
-                <StatusBadge status={bug.status} />
-                <span>{bug.system.name}</span>
-                <span>{bug.creator.displayName}</span>
-                <span>{severityLabel(bug.severity)}</span>
-              </div>
-              <p>{bug.description}</p>
-              <InfoBlock title="运行环境" value={bug.environment} />
-              <InfoBlock title="复现步骤" value={bug.steps} />
-              <InfoBlock title="期望结果" value={bug.expected} />
-              <InfoBlock title="实际结果" value={bug.actual} />
-              {bug.status === 'FIXED' && (
-                <div className="info-block">
-                  <strong>修复信息</strong>
-                  <p>
-                    {bug.fixedBy?.displayName ?? '未知用户'}
-                    {' · '}
-                    {bug.fixedAt ? formatDateTime(bug.fixedAt) : '时间未知'}
-                  </p>
-                  {latestFixActivity?.note && <p>{latestFixActivity.note}</p>}
+            <div className="panel bug-summary-panel">
+              <div className="bug-summary-header">
+                <div className="meta-row bug-summary-meta">
+                  <StatusBadge status={bug.status} />
+                  <span>系统：{bug.system.name}</span>
+                  <span>创建人：{bug.creator.displayName}</span>
+                  <span>严重程度：{severityLabel(bug.severity)}</span>
                 </div>
-              )}
-              <div className="stats">
+              </div>
+              <div className="detail-section-stack">
+                <InfoBlock title="描述" value={bug.description} tone="primary" />
+                <InfoBlock title="运行环境" value={bug.environment} />
+                <InfoBlock title="复现步骤" value={bug.steps} />
+                <InfoBlock title="期望结果" value={bug.expected} />
+                <InfoBlock title="实际结果" value={bug.actual} />
+                {bug.status === 'FIXED' && (
+                  <div className="info-block info-block-fixed">
+                    <strong>修复信息</strong>
+                    <p>
+                      {bug.fixedBy?.displayName ?? '未知用户'}
+                      {' · '}
+                      {bug.fixedAt ? formatDateTime(bug.fixedAt) : '时间未知'}
+                    </p>
+                    {latestFixActivity?.note && <p>{latestFixActivity.note}</p>}
+                  </div>
+                )}
+              </div>
+              <div className="stats bug-detail-stats">
                 <span>出现次数：{bug.appearedCount}</span>
                 <span>未出现：{bug.notAppearedCount}</span>
               </div>
             </div>
-            {canChangeStatus && !bug.deletedAt && (
-              <div className="panel">
-                <h2>状态操作</h2>
-                <form
-                  className="status-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void mutate(() =>
-                      api('/bugs/' + bug.id + '/status', {
-                        method: 'PATCH',
-                        body: JSON.stringify({ status: nextStatus, note: statusNote })
-                      })
-                    ).then(() => setStatusNote(''));
-                  }}
-                >
-                  <p className="muted">
-                    当前状态为{statusLabel(bug.status)}，你可以在这里{statusActionLabel}并填写备注。
-                  </p>
-                  <textarea
-                    placeholder={nextStatus === 'FIXED' ? '填写修复说明、影响范围或验证方式' : '填写重新打开的原因'}
-                    value={statusNote}
-                    onChange={(event) => setStatusNote(event.target.value)}
-                  />
-                  <button className="primary compact" type="submit">
-                    <CheckCircle2 size={16} />
-                    {statusActionLabel}
-                  </button>
-                </form>
-              </div>
-            )}
-            {canSoftDelete && (
-              <div className="panel">
-                <h2>删除 bug</h2>
-                <form
-                  className="status-form"
-                  onSubmit={async (event) => {
-                    event.preventDefault();
-                    setError('');
-                    try {
-                      await api('/bugs/' + bug.id + '/delete', {
-                        method: 'POST',
-                        body: JSON.stringify({ reason: deleteReason })
-                      });
-                      setDeleteReason('');
-                      await load();
-                    } catch (actionError) {
-                      setError(readError(actionError));
-                    }
-                  }}
-                >
-                  <p className="muted">删除后 bug 会进入回收站，仅管理员可以执行最终彻底删除。</p>
-                  <textarea
-                    placeholder="填写删除原因，例如重复登记、误报或已合并到其他 bug"
-                    value={deleteReason}
-                    onChange={(event) => setDeleteReason(event.target.value)}
-                  />
-                  <button className="ghost compact danger" type="submit">
-                    <Trash2 size={16} />
-                    移入回收站
-                  </button>
-                </form>
-              </div>
-            )}
             <div className="panel">
               <h2>截图</h2>
               <div className="screenshots">
@@ -1027,6 +998,67 @@ function BugDetailPage() {
           </div>
         </section>
       </section>
+      {statusDialogOpen && (
+        <BugStatusDialog
+          actionLabel={statusActionLabel}
+          currentStatus={bug.status}
+          error={statusDialogError}
+          nextStatus={nextStatus}
+          submitting={statusDialogSubmitting}
+          onCancel={() => {
+            if (!statusDialogSubmitting) {
+              setStatusDialogOpen(false);
+              setStatusDialogError('');
+            }
+          }}
+          onConfirm={async (note) => {
+            setStatusDialogError('');
+            setStatusDialogSubmitting(true);
+            try {
+              await api('/bugs/' + bug.id + '/status', {
+                method: 'PATCH',
+                body: JSON.stringify({ status: nextStatus, note })
+              });
+              setStatusDialogOpen(false);
+              await load();
+            } catch (actionError) {
+              setStatusDialogError(readError(actionError));
+            } finally {
+              setStatusDialogSubmitting(false);
+            }
+          }}
+        />
+      )}
+      {softDeleteOpen && (
+        <BugDeleteDialog
+          error={softDeleteError}
+          mode="soft"
+          submitting={softDeleteSubmitting}
+          title={bug.title}
+          onCancel={() => {
+            if (!softDeleteSubmitting) {
+              setSoftDeleteOpen(false);
+              setSoftDeleteError('');
+            }
+          }}
+          onConfirm={async (reason) => {
+            setSoftDeleteError('');
+            setSoftDeleteSubmitting(true);
+            try {
+              await api('/bugs/' + bug.id + '/delete', {
+                method: 'POST',
+                body: JSON.stringify({ reason })
+              });
+              setSoftDeleteOpen(false);
+              await load();
+            } catch (actionError) {
+              setSoftDeleteError(readError(actionError));
+            } finally {
+              setSoftDeleteSubmitting(false);
+            }
+          }}
+        />
+      )}
       {permanentDeleteOpen && (
         <BugDeleteDialog
           error={permanentDeleteError}
@@ -1560,12 +1592,107 @@ function StatusBadge({ status }: { status: BugStatus }) {
   return <span className={`status ${status.toLowerCase()}`}>{status === 'FIXED' ? '已修复' : '未修复'}</span>;
 }
 
-function InfoBlock({ title, value }: { title: string; value: string | null }) {
+function InfoBlock({ title, value, tone }: { title: string; value: string | null; tone?: 'primary' }) {
   if (!value) return null;
   return (
-    <div className="info-block">
+    <div className={tone ? `info-block info-block-${tone}` : 'info-block'}>
       <strong>{title}</strong>
       <p>{value}</p>
+    </div>
+  );
+}
+
+const MODAL_EXIT_MS = 180;
+
+function useModalClose(onCancel: () => void, submitting: boolean) {
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) {
+        window.clearTimeout(closeTimer.current);
+      }
+    };
+  }, []);
+
+  function requestClose() {
+    if (submitting || isClosing) {
+      return;
+    }
+    setIsClosing(true);
+    closeTimer.current = window.setTimeout(onCancel, MODAL_EXIT_MS);
+  }
+
+  return { isClosing, requestClose };
+}
+
+function BugStatusDialog({
+  actionLabel,
+  currentStatus,
+  error,
+  nextStatus,
+  submitting,
+  onCancel,
+  onConfirm
+}: {
+  actionLabel: string;
+  currentStatus: BugStatus;
+  error?: string;
+  nextStatus: BugStatus;
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: (note: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  const { isClosing, requestClose } = useModalClose(onCancel, submitting);
+  const normalizedNote = note.trim();
+  const canSubmit = Boolean(normalizedNote);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!canSubmit || submitting) {
+      return;
+    }
+    onConfirm(normalizedNote);
+  }
+
+  return (
+    <div className={`bug-delete-modal-backdrop${isClosing ? ' closing' : ''}`} role="presentation">
+      <section className="bug-delete-modal action-modal" role="dialog" aria-modal="true" aria-labelledby="bug-status-modal-title">
+        <header className="bug-delete-modal-header">
+          <div>
+            <h2 id="bug-status-modal-title">状态操作</h2>
+            <p>填写操作说明后，将当前 bug 从{statusLabel(currentStatus)}变更为{statusLabel(nextStatus)}。</p>
+          </div>
+          <button className="icon-button" type="button" onClick={requestClose} disabled={submitting} title="关闭窗口">
+            <X size={20} />
+          </button>
+        </header>
+        <form className="bug-delete-modal-body" onSubmit={submit}>
+          <div className="delete-target action-target">
+            <span>状态变更</span>
+            <strong>{statusLabel(currentStatus)} {'->'} {statusLabel(nextStatus)}</strong>
+          </div>
+          <label>
+            操作说明
+            <textarea
+              autoFocus
+              placeholder={nextStatus === 'FIXED' ? '填写修复说明、影响范围或验证方式' : '填写重新打开的原因'}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </label>
+          {error && <p className="error">{error}</p>}
+          <footer className="bug-delete-modal-actions">
+            <button className="ghost" type="button" onClick={requestClose} disabled={submitting}>取消</button>
+            <button className="primary" type="submit" disabled={!canSubmit || submitting}>
+              <CheckCircle2 size={16} />
+              {submitting ? '处理中...' : actionLabel}
+            </button>
+          </footer>
+        </form>
+      </section>
     </div>
   );
 }
@@ -1586,6 +1713,7 @@ function BugDeleteDialog({
   onConfirm: (reason: string) => void;
 }) {
   const [reason, setReason] = useState('');
+  const { isClosing, requestClose } = useModalClose(onCancel, submitting);
   const isPermanent = mode === 'permanent';
   const normalizedReason = reason.trim();
   const canSubmit = isPermanent || Boolean(normalizedReason);
@@ -1599,14 +1727,14 @@ function BugDeleteDialog({
   }
 
   return (
-    <div className="bug-delete-modal-backdrop" role="presentation">
+    <div className={`bug-delete-modal-backdrop${isClosing ? ' closing' : ''}`} role="presentation">
       <section className="bug-delete-modal" role="dialog" aria-modal="true" aria-labelledby="bug-delete-modal-title">
         <header className="bug-delete-modal-header">
           <div>
             <h2 id="bug-delete-modal-title">{isPermanent ? '彻底删除 bug' : '移入回收站'}</h2>
             <p>{isPermanent ? '此操作会永久删除数据，删除后无法恢复。' : '删除后 bug 会进入回收站，管理员仍可彻底删除。'}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onCancel} disabled={submitting} title="关闭窗口">
+          <button className="icon-button" type="button" onClick={requestClose} disabled={submitting} title="关闭窗口">
             <X size={20} />
           </button>
         </header>
@@ -1630,7 +1758,7 @@ function BugDeleteDialog({
           )}
           {error && <p className="error">{error}</p>}
           <footer className="bug-delete-modal-actions">
-            <button className="ghost" type="button" onClick={onCancel} disabled={submitting}>取消</button>
+            <button className="ghost" type="button" onClick={requestClose} disabled={submitting}>取消</button>
             <button className="ghost danger" type="submit" disabled={!canSubmit || submitting}>
               <Trash2 size={16} />
               {submitting ? '处理中...' : isPermanent ? '确认彻底删除' : '移入回收站'}
@@ -1655,15 +1783,17 @@ function BugActivityDeleteDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { isClosing, requestClose } = useModalClose(onCancel, submitting);
+
   return (
-    <div className="bug-delete-modal-backdrop" role="presentation">
+    <div className={`bug-delete-modal-backdrop${isClosing ? ' closing' : ''}`} role="presentation">
       <section className="bug-delete-modal" role="dialog" aria-modal="true" aria-labelledby="activity-delete-modal-title">
         <header className="bug-delete-modal-header">
           <div>
             <h2 id="activity-delete-modal-title">删除活动记录</h2>
             <p>删除后这条操作历史将从当前 bug 的活动记录中移除。</p>
           </div>
-          <button className="icon-button" type="button" onClick={onCancel} disabled={submitting} title="关闭窗口">
+          <button className="icon-button" type="button" onClick={requestClose} disabled={submitting} title="关闭窗口">
             <X size={20} />
           </button>
         </header>
@@ -1680,7 +1810,7 @@ function BugActivityDeleteDialog({
           {activity.note && <p className="delete-warning">{activity.note}</p>}
           {error && <p className="error">{error}</p>}
           <footer className="bug-delete-modal-actions">
-            <button className="ghost" type="button" onClick={onCancel} disabled={submitting}>取消</button>
+            <button className="ghost" type="button" onClick={requestClose} disabled={submitting}>取消</button>
             <button className="ghost danger" type="button" onClick={onConfirm} disabled={submitting}>
               <Trash2 size={16} />
               {submitting ? '处理中...' : '确认删除记录'}
