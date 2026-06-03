@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Archive,
   Bug,
   CheckCircle2,
   ClipboardList,
@@ -16,14 +17,11 @@ import {
 import { FormEvent, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  ALL_PERMISSIONS,
-  API_BASE,
   BugActivity,
   BugDetail,
   BugItem,
   BugStatus,
-  PERMISSION_LABELS,
-  Permission,
+  PermissionDefinition,
   Role,
   TrackedSystem,
   User,
@@ -31,6 +29,7 @@ import {
   assetUrl,
   hasPermission
 } from './api';
+import { RoleAdminPanel } from './RoleAdminPanel';
 
 type AuthContextValue = {
   user: User | null;
@@ -255,11 +254,15 @@ function AuthFrame({ title, children }: { title: string; children: React.ReactNo
 }
 
 function Dashboard() {
+  const { user } = useAuth();
   const [bugs, setBugs] = useState<BugItem[]>([]);
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
   const [systemId, setSystemId] = useState('');
   const [status, setStatus] = useState('');
+  const [deleted, setDeleted] = useState<'active' | 'only' | 'all'>('active');
   const [error, setError] = useState('');
+  const canCreateBug = hasPermission(user, 'CREATE_BUG');
+  const canViewRecycleBin = Boolean(user?.isAdmin);
 
   async function load() {
     setError('');
@@ -267,6 +270,7 @@ function Dashboard() {
       const params = new URLSearchParams();
       if (systemId) params.set('systemId', systemId);
       if (status) params.set('status', status);
+      if (deleted !== 'active') params.set('deleted', deleted);
       setBugs(await api<BugItem[]>(`/bugs?${params.toString()}`));
     } catch (error) {
       setError(readError(error));
@@ -279,11 +283,16 @@ function Dashboard() {
 
   useEffect(() => {
     void load();
-  }, [systemId, status]);
+  }, [systemId, status, deleted]);
 
   return (
     <>
-      <PageHeader title="Bug 列表" action={<Link className="primary compact" to="/bugs/new"><Plus size={16} />登记 bug</Link>} />
+      <PageHeader
+        title={deleted === 'only' ? 'Bug 回收站' : 'Bug 列表'}
+        action={
+          canCreateBug ? <Link className="primary compact" to="/bugs/new"><Plus size={16} />登记 bug</Link> : undefined
+        }
+      />
       <div className="toolbar">
         <select value={systemId} onChange={(event) => setSystemId(event.target.value)}>
           <option value="">全部系统</option>
@@ -294,6 +303,13 @@ function Dashboard() {
           <option value="OPEN">未修复</option>
           <option value="FIXED">已修复</option>
         </select>
+        {canViewRecycleBin && (
+          <select value={deleted} onChange={(event) => setDeleted(event.target.value as 'active' | 'only' | 'all')}>
+            <option value="active">仅正常数据</option>
+            <option value="only">仅回收站</option>
+            <option value="all">全部数据</option>
+          </select>
+        )}
       </div>
       {error && <p className="error">{error}</p>}
       <div className="table-wrap">
@@ -308,6 +324,7 @@ function Dashboard() {
               <th>运行信息</th>
               <th>确认出现</th>
               <th>未出现</th>
+              {deleted !== 'active' && <th>删除信息</th>}
               <th>操作</th>
             </tr>
           </thead>
@@ -322,9 +339,48 @@ function Dashboard() {
                 <td data-label="运行信息">{bug.runtimeInfoCount}</td>
                 <td data-label="确认出现">{bug.appearedCount}</td>
                 <td data-label="未出现">{bug.notAppearedCount}</td>
-                <td data-label="操作"><Link className="ghost compact" to={`/bugs/${bug.id}/edit`}><Pencil size={16} />编辑</Link></td>
+                {deleted !== 'active' && (
+                  <td data-label="删除信息">
+                    {bug.deletedAt ? (
+                      <div className="delete-meta">
+                        <span>{bug.deletedBy?.displayName ?? '未知用户'}</span>
+                        <span>{formatDateTime(bug.deletedAt)}</span>
+                      </div>
+                    ) : (
+                      '未删除'
+                    )}
+                  </td>
+                )}
+                <td data-label="操作">
+                  <div className="actions">
+                    {(!bug.deletedAt && (user?.isAdmin || bug.creator.id === user?.id)) && (
+                      <Link className="ghost compact" to={`/bugs/${bug.id}/edit`}><Pencil size={16} />编辑</Link>
+                    )}
+                    {bug.deletedAt && user?.isAdmin && (
+                      <button
+                        className="ghost compact danger"
+                        onClick={() => {
+                          if (!confirm(`确认彻底删除 bug「${bug.title}」吗？此操作不可恢复。`)) {
+                            return;
+                          }
+                          void api(`/bugs/${bug.id}/permanent`, { method: 'DELETE' }).then(() => load()).catch((loadError) => setError(readError(loadError)));
+                        }}
+                      >
+                        <Archive size={16} />
+                        彻底删除
+                      </button>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
+            {bugs.length === 0 && (
+              <tr>
+                <td colSpan={deleted !== 'active' ? 10 : 9} className="empty-cell">
+                  {deleted === 'only' ? '回收站中暂无 bug。' : '暂无匹配的 bug。'}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -488,6 +544,7 @@ function BugDetailPage() {
   const [file, setFile] = useState<File | null>(null);
   const [retest, setRetest] = useState({ result: 'APPEARED', note: '' });
   const [statusNote, setStatusNote] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
 
   async function load() {
     if (!id) return;
@@ -516,7 +573,9 @@ function BugDetailPage() {
   const canAddEvidence = hasPermission(user, 'ADD_BUG_EVIDENCE');
   const canRetest = hasPermission(user, 'RETEST_BUG') && bug.creator.id !== user?.id;
   const canChangeStatus = hasPermission(user, 'MARK_BUG_FIXED');
-  const canEditBug = Boolean(user?.isAdmin || bug.creator.id === user?.id);
+  const canEditBug = Boolean(!bug.deletedAt && (user?.isAdmin || bug.creator.id === user?.id));
+  const canSoftDelete = Boolean(!bug.deletedAt && hasPermission(user, 'DELETE_BUG') && (user?.isAdmin || bug.creator.id === user?.id));
+  const canPermanentDelete = Boolean(bug.deletedAt && user?.isAdmin);
   const nextStatus: BugStatus = bug.status === 'FIXED' ? 'OPEN' : 'FIXED';
   const statusActionLabel = nextStatus === 'FIXED' ? '标记为已修复' : '重新打开 bug';
   const latestFixActivity =
@@ -540,6 +599,38 @@ function BugDetailPage() {
         )}
       />
       {error && <p className="error">{error}</p>}
+      {bug.deletedAt && (
+        <section className="panel deleted-banner">
+          <div>
+            <strong>该 bug 已进入回收站</strong>
+            <p>
+              删除人：{bug.deletedBy?.displayName ?? '未知用户'} · 删除时间：{formatDateTime(bug.deletedAt)}
+            </p>
+            {bug.deleteReason && <p>删除原因：{bug.deleteReason}</p>}
+          </div>
+          {canPermanentDelete && (
+            <button
+              className="ghost compact danger"
+              type="button"
+              onClick={async () => {
+                if (!confirm(`确认彻底删除 bug「${bug.title}」吗？此操作不可恢复。`)) {
+                  return;
+                }
+                setError('');
+                try {
+                  await api(`/bugs/${bug.id}/permanent`, { method: 'DELETE' });
+                  window.location.href = '/';
+                } catch (actionError) {
+                  setError(readError(actionError));
+                }
+              }}
+            >
+              <Archive size={16} />
+              彻底删除
+            </button>
+          )}
+        </section>
+      )}
       <section className="detail-grid">
         <div className="panel">
           <div className="meta-row">
@@ -569,7 +660,7 @@ function BugDetailPage() {
             <span>未出现：{bug.notAppearedCount}</span>
           </div>
         </div>
-        {canChangeStatus && (
+        {canChangeStatus && !bug.deletedAt && (
           <div className="panel">
             <h2>状态操作</h2>
             <form
@@ -599,6 +690,39 @@ function BugDetailPage() {
             </form>
           </div>
         )}
+        {canSoftDelete && (
+          <div className="panel">
+            <h2>删除 bug</h2>
+            <form
+              className="status-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setError('');
+                try {
+                  await api('/bugs/' + bug.id + '/delete', {
+                    method: 'POST',
+                    body: JSON.stringify({ reason: deleteReason })
+                  });
+                  setDeleteReason('');
+                  await load();
+                } catch (actionError) {
+                  setError(readError(actionError));
+                }
+              }}
+            >
+              <p className="muted">删除后 bug 会进入回收站，仅管理员可以执行最终彻底删除。</p>
+              <textarea
+                placeholder="填写删除原因，例如重复登记、误报或已合并到其他 bug"
+                value={deleteReason}
+                onChange={(event) => setDeleteReason(event.target.value)}
+              />
+              <button className="ghost compact danger" type="submit">
+                <Trash2 size={16} />
+                移入回收站
+              </button>
+            </form>
+          </div>
+        )}
         <div className="panel">
           <h2>截图</h2>
           <div className="screenshots">
@@ -606,7 +730,7 @@ function BugDetailPage() {
               <figure key={shot.id}>
                 <img src={assetUrl(shot.path)} alt={shot.caption ?? shot.originalName} />
                 <figcaption>{shot.caption ?? shot.originalName}</figcaption>
-                {canAddEvidence && (
+                {canAddEvidence && !bug.deletedAt && (
                   <button
                     className="icon-button"
                     onClick={() => mutate(() => api('/bugs/' + bug.id + '/screenshots/' + shot.id, { method: 'DELETE' }))}
@@ -618,7 +742,7 @@ function BugDetailPage() {
               </figure>
             ))}
           </div>
-          {canAddEvidence && (
+          {canAddEvidence && !bug.deletedAt && (
             <form
               className="inline-upload"
               onSubmit={(event) => {
@@ -647,7 +771,7 @@ function BugDetailPage() {
                   <strong>{info.title}</strong>
                   <span>{info.author?.displayName ?? '未知作者'}</span>
                 </div>
-                {canAddEvidence && (user?.isAdmin || info.authorId === user?.id) && (
+                {canAddEvidence && !bug.deletedAt && (user?.isAdmin || info.authorId === user?.id) && (
                   <button
                     className="icon-button"
                     onClick={() => mutate(() => api('/bugs/' + bug.id + '/runtime-info/' + info.id, { method: 'DELETE' }))}
@@ -662,7 +786,7 @@ function BugDetailPage() {
             </article>
           ))}
         </div>
-        {canAddEvidence && (
+        {canAddEvidence && !bug.deletedAt && (
           <form
             className="runtime-editor"
             onSubmit={(event) => {
@@ -687,7 +811,7 @@ function BugDetailPage() {
           </form>
         )}
       </section>
-      {canRetest && (
+      {canRetest && !bug.deletedAt && (
         <section className="panel">
           <h2>复测</h2>
           <form
@@ -846,9 +970,9 @@ function AdminPage() {
   const { user } = useAuth();
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [permissionDefinitions, setPermissionDefinitions] = useState<PermissionDefinition[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [systemForm, setSystemForm] = useState({ name: '', description: '', owner: '', versionInfo: '' });
-  const [roleForm, setRoleForm] = useState<{ name: string; permissions: Permission[] }>({ name: '', permissions: [] });
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'systems' | 'roles' | 'users'>('systems');
 
@@ -872,6 +996,9 @@ function AdminPage() {
       canManageRoles || canManageUsers
         ? api<Role[]>('/roles').then(setRoles)
         : Promise.resolve(setRoles([])),
+      canManageRoles
+        ? api<PermissionDefinition[]>('/roles/permissions').then(setPermissionDefinitions)
+        : Promise.resolve(setPermissionDefinitions([])),
       canManageUsers
         ? api<User[]>('/users').then(setUsers)
         : Promise.resolve(setUsers([]))
@@ -898,6 +1025,17 @@ function AdminPage() {
       await loadAll();
     } catch (error) {
       setError(readError(error));
+    }
+  }
+
+  async function mutateOrThrow(action: () => Promise<unknown>) {
+    setError('');
+    try {
+      await action();
+      await loadAll();
+    } catch (error) {
+      setError(readError(error));
+      throw error;
     }
   }
 
@@ -949,20 +1087,11 @@ function AdminPage() {
           </div>
         )}
         {activeTab === 'roles' && canManageRoles && (
-          <div className="panel">
-          <h2>角色</h2>
-          <form className="stack" onSubmit={(event) => {
-            event.preventDefault();
-            void mutate(() => api('/roles', { method: 'POST', body: JSON.stringify(roleForm) })).then(() => setRoleForm({ name: '', permissions: [] }));
-          }}>
-            <input placeholder="角色名称" value={roleForm.name} onChange={(event) => setRoleForm({ ...roleForm, name: event.target.value })} />
-            <PermissionPicker value={roleForm.permissions} onChange={(permissions) => setRoleForm({ ...roleForm, permissions })} />
-            <button className="primary compact" type="submit"><Shield size={16} />创建角色</button>
-          </form>
-          <div className="list">
-            {roles.map((role) => <RoleRow key={role.id} role={role} onSave={(next) => mutate(() => api(`/roles/${role.id}`, { method: 'PATCH', body: JSON.stringify(next) }))} onDelete={() => mutate(() => api(`/roles/${role.id}`, { method: 'DELETE' }))} />)}
-          </div>
-          </div>
+          <RoleAdminPanel
+            permissions={permissionDefinitions}
+            roles={roles}
+            onMutate={mutateOrThrow}
+          />
         )}
         {activeTab === 'users' && canManageUsers && (
           <div className="panel">
@@ -1202,41 +1331,6 @@ function UserStateBadge({ status }: { status: User['status'] }) {
   return <span className={`user-state-badge ${current.tone}`}>{current.label}</span>;
 }
 
-function RoleRow({ role, onSave, onDelete }: { role: Role; onSave: (role: Pick<Role, 'name' | 'permissions'>) => void; onDelete: () => void }) {
-  const [draft, setDraft] = useState({ name: role.name, permissions: role.permissions });
-  useEffect(() => {
-    setDraft({ name: role.name, permissions: role.permissions });
-  }, [role.name, role.permissions]);
-  return (
-    <div className="role-row">
-      <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
-      <PermissionPicker value={draft.permissions} onChange={(permissions) => setDraft({ ...draft, permissions })} />
-      <button className="icon-button" onClick={() => onSave(draft)} title="保存角色"><Save size={16} /></button>
-      <button className="icon-button" onClick={onDelete} title="删除角色"><Trash2 size={16} /></button>
-    </div>
-  );
-}
-
-function PermissionPicker({ value, onChange }: { value: Permission[]; onChange: (value: Permission[]) => void }) {
-  const selected = useMemo(() => new Set(value), [value]);
-  return (
-    <div className="permission-grid">
-      {ALL_PERMISSIONS.map((permission) => (
-        <label key={permission}>
-          <input
-            type="checkbox"
-            checked={selected.has(permission)}
-            onChange={(event) => {
-              onChange(event.target.checked ? [...value, permission] : value.filter((item) => item !== permission));
-            }}
-          />
-          {PERMISSION_LABELS[permission]}
-        </label>
-      ))}
-    </div>
-  );
-}
-
 function PageHeader({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
     <header className="page-header">
@@ -1265,6 +1359,7 @@ function activityTitle(activity: BugActivity) {
     CREATED: '创建 bug',
     UPDATED: '编辑 bug',
     STATUS_CHANGED: '变更状态',
+    DELETED: '移入回收站',
     SCREENSHOT_ADDED: '上传截图',
     SCREENSHOT_REMOVED: '删除截图',
     RUNTIME_INFO_ADDED: '添加运行信息',
@@ -1333,6 +1428,8 @@ function describeActivityContext(activity: BugActivity | null) {
       ]
         .filter(Boolean)
         .join('，');
+    case 'DELETED':
+      return get('deletedBy') ? `执行人：${get('deletedBy')}` : '';
     default:
       return '';
   }

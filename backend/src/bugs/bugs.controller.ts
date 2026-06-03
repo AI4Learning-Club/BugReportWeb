@@ -45,13 +45,18 @@ export class BugsController {
   constructor(private readonly bugsService: BugsService) {}
 
   @Get()
-  list(@Query('systemId') systemId?: string, @Query('status') status?: BugStatus) {
-    return this.bugsService.list({ systemId, status });
+  list(
+    @Query('systemId') systemId: string | undefined,
+    @Query('status') status: BugStatus | undefined,
+    @Query('deleted') deleted: 'active' | 'only' | 'all' | undefined,
+    @Req() request: RequestWithUser
+  ) {
+    return this.bugsService.list({ systemId, status, deleted }, request.user);
   }
 
   @Get(':id')
-  detail(@Param('id') id: string) {
-    return this.bugsService.detail(id);
+  detail(@Param('id') id: string, @Req() request: RequestWithUser) {
+    return this.bugsService.detail(id, request.user);
   }
 
   @Post()
@@ -77,6 +82,21 @@ export class BugsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() body: Record<string, unknown>, @Req() request: RequestWithUser) {
     return this.bugsService.update(id, body as never, request.user);
+  }
+
+  @Post(':id/delete')
+  @Permissions(Permission.DELETE_BUG)
+  softDelete(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() request: RequestWithUser
+  ) {
+    return this.bugsService.softDelete(id, body, request.user);
+  }
+
+  @Delete(':id/permanent')
+  permanentDelete(@Param('id') id: string, @Req() request: RequestWithUser) {
+    return this.bugsService.permanentDelete(id, request.user);
   }
 
   @Patch(':id/status')

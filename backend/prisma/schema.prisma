@@ -12,6 +12,7 @@ enum Permission {
   RETEST_BUG
   MARK_BUG_FIXED
   ADD_BUG_EVIDENCE
+  DELETE_BUG
   MANAGE_SYSTEMS
   MANAGE_ROLES
   MANAGE_USERS
@@ -32,6 +33,7 @@ enum BugActivityType {
   CREATED
   UPDATED
   STATUS_CHANGED
+  DELETED
   SCREENSHOT_ADDED
   SCREENSHOT_REMOVED
   RUNTIME_INFO_ADDED
@@ -74,6 +76,7 @@ model User {
   updatedAt     DateTime         @updatedAt
   createdBugs   Bug[]            @relation("BugCreator")
   fixedBugs     Bug[]            @relation("BugFixer")
+  deletedBugs   Bug[]            @relation("BugDeleter")
   screenshots   BugScreenshot[]
   runtimeInfos  BugRuntimeInfo[]
   retests       BugRetest[]
@@ -109,6 +112,10 @@ model Bug {
   fixedAt      DateTime?
   fixedById    String?
   fixedBy      User?            @relation("BugFixer", fields: [fixedById], references: [id])
+  deletedAt    DateTime?
+  deletedById  String?
+  deletedBy    User?            @relation("BugDeleter", fields: [deletedById], references: [id])
+  deleteReason String?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   screenshots  BugScreenshot[]
@@ -119,6 +126,8 @@ model Bug {
   @@index([systemId])
   @@index([creatorId])
   @@index([status])
+  @@index([deletedAt])
+  @@index([deletedById])
 }
 
 model BugActivity {

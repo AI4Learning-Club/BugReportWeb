@@ -34,6 +34,10 @@ type StatusBody = {
   note?: string;
 };
 
+type DeleteBody = {
+  reason?: string;
+};
+
 type ActivityChange = {
   field: string;
   from: string | null;
@@ -41,6 +45,7 @@ type ActivityChange = {
 };
 
 type ActivityContext = Record<string, string | number | boolean | null>;
+type DeletedFilter = 'active' | 'only' | 'all';
 
 const actorSelect = {
   select: { id: true, username: true, displayName: true }
@@ -50,24 +55,29 @@ const actorSelect = {
 export class BugsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: { systemId?: string; status?: BugStatus }) {
+  async list(
+    query: { systemId?: string; status?: BugStatus; deleted?: DeletedFilter },
+    user: AuthUser
+  ) {
+    const deleted = this.normalizeDeletedFilter(query.deleted);
+    if (deleted !== 'active' && !user.isAdmin) {
+      throw new ForbiddenException('Only admins can access deleted bugs');
+    }
+
     const bugs = await this.prisma.bug.findMany({
-      where: {
-        systemId: query.systemId,
-        status: query.status
-      },
+      where: this.buildBugWhere(query.systemId, query.status, deleted),
       include: this.bugInclude(),
-      orderBy: { createdAt: 'desc' }
+      orderBy: deleted === 'only' ? { deletedAt: 'desc' } : { createdAt: 'desc' }
     });
     return bugs.map((bug) => this.toBugResponse(bug));
   }
 
-  async detail(id: string) {
+  async detail(id: string, user: AuthUser) {
     const bug = await this.prisma.bug.findUnique({
       where: { id },
       include: this.bugInclude(true)
     });
-    if (!bug) {
+    if (!bug || (bug.deletedAt && !user.isAdmin)) {
       throw new NotFoundException('Bug not found');
     }
     return this.toBugResponse(bug);
@@ -128,7 +138,7 @@ export class BugsService {
 
     const changes = this.diffFields(bug, data);
     if (changes.length === 0) {
-      return this.detail(id);
+      return this.detail(id, user);
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -147,6 +157,67 @@ export class BugsService {
       const updated = await this.findBugDetail(tx, bug.id);
       return this.toBugResponse(updated);
     });
+  }
+
+  async softDelete(id: string, body: DeleteBody, user: AuthUser) {
+    const bug = await this.ensureBug(id);
+    if (!user.isAdmin && bug.creatorId !== user.id) {
+      throw new ForbiddenException('Only admins or creators can delete bugs');
+    }
+    const reason = this.requireNote(body.reason);
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.bug.update({
+        where: { id },
+        data: {
+          deletedAt: new Date(),
+          deletedById: user.id,
+          deleteReason: reason
+        }
+      });
+
+      await this.createActivity(tx, {
+        bugId: id,
+        actorId: user.id,
+        type: BugActivityType.DELETED,
+        note: reason,
+        context: {
+          deletedBy: user.displayName,
+          deletedById: user.id
+        }
+      });
+
+      return { ok: true };
+    });
+  }
+
+  async permanentDelete(id: string, user: AuthUser) {
+    if (!user.isAdmin) {
+      throw new ForbiddenException('Only admins can permanently delete bugs');
+    }
+
+    const bug = await this.ensureBug(id, { includeDeleted: true });
+    if (!bug.deletedAt) {
+      throw new BadRequestException('Only deleted bugs can be permanently removed');
+    }
+
+    const screenshots = await this.prisma.bugScreenshot.findMany({
+      where: { bugId: id },
+      select: { path: true }
+    });
+
+    await this.prisma.bug.delete({ where: { id } });
+
+    await Promise.all(
+      screenshots.map(async (screenshot) => {
+        const filePath = join(process.cwd(), screenshot.path.replace(/^\//, ''));
+        if (existsSync(filePath)) {
+          await unlink(filePath);
+        }
+      })
+    );
+
+    return { ok: true };
   }
 
   async updateStatus(id: string, body: StatusBody, user: AuthUser) {
@@ -226,7 +297,7 @@ export class BugsService {
       where: { id: screenshotId, bugId },
       include: { bug: true }
     });
-    if (!screenshot) {
+    if (!screenshot || screenshot.bug.deletedAt) {
       throw new NotFoundException('Screenshot not found');
     }
     if (!user.isAdmin && screenshot.uploaderId !== user.id && screenshot.bug.creatorId !== user.id) {
@@ -414,6 +485,7 @@ export class BugsService {
       system: true,
       creator: actorSelect,
       fixedBy: actorSelect,
+      deletedBy: actorSelect,
       screenshots: true,
       runtimeInfos: detail
         ? {
@@ -497,9 +569,28 @@ export class BugsService {
     return normalized;
   }
 
-  private async ensureBug(id: string) {
+  private normalizeDeletedFilter(deleted?: DeletedFilter) {
+    if (!deleted) {
+      return 'active';
+    }
+    if (!['active', 'only', 'all'].includes(deleted)) {
+      throw new BadRequestException('deleted must be active, only or all');
+    }
+    return deleted;
+  }
+
+  private buildBugWhere(systemId: string | undefined, status: BugStatus | undefined, deleted: DeletedFilter) {
+    return {
+      systemId,
+      status,
+      ...(deleted === 'active' ? { deletedAt: null } : {}),
+      ...(deleted === 'only' ? { deletedAt: { not: null } } : {})
+    };
+  }
+
+  private async ensureBug(id: string, options: { includeDeleted?: boolean } = {}) {
     const bug = await this.prisma.bug.findUnique({ where: { id } });
-    if (!bug) {
+    if (!bug || (!options.includeDeleted && bug.deletedAt)) {
       throw new NotFoundException('Bug not found');
     }
     return bug;
@@ -514,6 +605,7 @@ export class BugsService {
   }
 
   private async findRuntimeInfo(bugId: string, infoId: string) {
+    await this.ensureBug(bugId);
     const info = await this.prisma.bugRuntimeInfo.findFirst({ where: { id: infoId, bugId } });
     if (!info) {
       throw new NotFoundException('Runtime info not found');

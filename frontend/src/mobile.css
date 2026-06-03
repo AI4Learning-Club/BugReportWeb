@@ -391,6 +391,33 @@
     grid-template-columns: 1fr;
   }
 
+  .deleted-banner,
+  .role-admin-layout,
+  .permission-card,
+  .role-list-item,
+  .role-admin-actions,
+  .role-admin-create {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .deleted-banner {
+    justify-content: stretch;
+  }
+
+  .role-admin-layout {
+    gap: 16px;
+  }
+
+  .role-list-item,
+  .permission-card {
+    justify-content: stretch;
+  }
+
+  .permission-card-meta {
+    justify-items: start;
+  }
+
   .admin-role-label {
     width: 100%;
     justify-content: center;

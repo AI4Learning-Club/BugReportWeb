@@ -13,6 +13,24 @@ export class RolesController {
     return this.rolesService.list();
   }
 
+  @Get('permissions')
+  @Permissions(Permission.MANAGE_ROLES, Permission.MANAGE_USERS)
+  permissions() {
+    return this.rolesService.permissions();
+  }
+
+  @Get('export')
+  @Permissions(Permission.MANAGE_ROLES)
+  exportRoles() {
+    return this.rolesService.exportRoles();
+  }
+
+  @Post('import')
+  @Permissions(Permission.MANAGE_ROLES)
+  importRoles(@Body() body: { version?: number; roles?: Array<{ name?: string; permissions?: Permission[] }> }) {
+    return this.rolesService.importRoles(body);
+  }
+
   @Post()
   @Permissions(Permission.MANAGE_ROLES)
   create(@Body() body: { name?: string; permissions?: Permission[] }) {

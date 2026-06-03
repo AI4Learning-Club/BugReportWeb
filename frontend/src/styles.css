@@ -1171,6 +1171,264 @@ tbody tr:hover td {
   flex-wrap: wrap;
 }
 
+.danger {
+  color: #a33a47;
+  border-color: #f0d7db;
+  background: #fff7f8;
+}
+
+.danger:hover:not(:disabled) {
+  color: #8a2d39;
+  border-color: #e7bcc3;
+  background: #fdeff1;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.empty-cell {
+  text-align: center;
+  color: #718191;
+}
+
+.delete-meta {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: #627487;
+}
+
+.deleted-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-color: #f0d7db;
+  background: linear-gradient(180deg, #fff8f8 0%, #fffefe 100%);
+}
+
+.deleted-banner p {
+  margin: 6px 0 0;
+}
+
+.role-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1.2fr) minmax(300px, 360px);
+  gap: 18px;
+  align-items: start;
+}
+
+.role-admin-sidebar,
+.role-admin-catalog,
+.role-admin-detail {
+  display: grid;
+  gap: 18px;
+}
+
+.role-admin-section,
+.role-admin-heading,
+.role-admin-create,
+.role-admin-actions,
+.role-list,
+.role-admin-detail-meta,
+.permission-group-list,
+.permission-cards,
+.detail-block {
+  display: grid;
+  gap: 12px;
+}
+
+.role-admin-heading h2,
+.role-admin-heading h3,
+.permission-group header strong,
+.detail-block strong {
+  margin: 0;
+}
+
+.role-admin-heading span,
+.permission-group header span {
+  font-size: 13px;
+  color: #718191;
+}
+
+.role-admin-create {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.role-admin-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.import-preview-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #dce8e4;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f6fbf9 0%, #ffffff 100%);
+}
+
+.import-preview-card p {
+  margin: 0;
+  color: #516273;
+}
+
+.role-list {
+  gap: 10px;
+}
+
+.role-list-item,
+.permission-card {
+  width: 100%;
+  border: 1px solid #dfe7ee;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  text-align: left;
+  transition:
+    border-color 180ms var(--ease-out),
+    box-shadow 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+
+.role-list-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.role-list-item strong,
+.permission-card strong {
+  display: block;
+}
+
+.role-list-item span,
+.permission-card span {
+  color: #627487;
+}
+
+.role-list-item:hover,
+.permission-card:hover {
+  border-color: #cfe0db;
+  box-shadow: 0 10px 24px rgba(23, 33, 43, 0.08);
+  transform: translateY(-1px);
+}
+
+.role-list-item.active,
+.permission-card.active {
+  border-color: #176b58;
+  box-shadow: 0 14px 30px rgba(23, 107, 88, 0.14);
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  min-height: 44px;
+  border: 1px solid #dfe7ee;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #627487;
+}
+
+.search-field input {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.search-field input:focus {
+  box-shadow: none;
+}
+
+.permission-group {
+  display: grid;
+  gap: 12px;
+}
+
+.permission-group header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.permission-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px;
+}
+
+.permission-card-main,
+.permission-card-title,
+.role-admin-empty {
+  display: grid;
+  gap: 8px;
+}
+
+.permission-card-title span {
+  font-size: 13px;
+}
+
+.permission-card-main p,
+.role-admin-empty p,
+.detail-block ul {
+  margin: 0;
+}
+
+.permission-card-meta {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.permission-tag,
+.permission-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.permission-tag {
+  background: #eef3f6;
+  color: #43505f;
+}
+
+.permission-state.enabled {
+  background: #e5f3ed;
+  color: #176b58;
+}
+
+.permission-state.disabled {
+  background: #f2f5f8;
+  color: #6c7b8a;
+}
+
+.detail-block ul {
+  padding-left: 18px;
+  color: #516273;
+}
+
+.role-admin-empty {
+  min-height: 260px;
+  place-content: center;
+  place-items: center;
+  color: #627487;
+  text-align: center;
+}
+
 .muted {
   color: #718191;
 }

@@ -23,6 +23,7 @@ export type Permission =
   | 'RETEST_BUG'
   | 'MARK_BUG_FIXED'
   | 'ADD_BUG_EVIDENCE'
+  | 'DELETE_BUG'
   | 'MANAGE_SYSTEMS'
   | 'MANAGE_ROLES'
   | 'MANAGE_USERS';
@@ -31,6 +32,10 @@ export type Role = {
   id: string;
   name: string;
   permissions: Permission[];
+  userCount?: number;
+  permissionCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type User = {
@@ -67,6 +72,7 @@ export type BugActivity = {
     | 'CREATED'
     | 'UPDATED'
     | 'STATUS_CHANGED'
+    | 'DELETED'
     | 'SCREENSHOT_ADDED'
     | 'SCREENSHOT_REMOVED'
     | 'RUNTIME_INFO_ADDED'
@@ -96,6 +102,9 @@ export type BugItem = {
   creator: Pick<User, 'id' | 'username' | 'displayName'>;
   fixedBy: Pick<User, 'id' | 'username' | 'displayName'> | null;
   fixedAt: string | null;
+  deletedBy: Pick<User, 'id' | 'username' | 'displayName'> | null;
+  deletedAt: string | null;
+  deleteReason: string | null;
   screenshots: Screenshot[];
   runtimeInfos: RuntimeInfo[];
   retests: Retest[];
@@ -135,11 +144,29 @@ export type Retest = {
   note: string | null;
 };
 
+export type PermissionDefinition = {
+  code: Permission;
+  zhName: string;
+  enName: string;
+  group: string;
+  summary: string;
+  description: string;
+  surfaces: string[];
+  apis: string[];
+};
+
+export type RoleConfigDocument = {
+  version: number;
+  exportedAt?: string;
+  roles: Array<Pick<Role, 'name' | 'permissions'>>;
+};
+
 export const ALL_PERMISSIONS: Permission[] = [
   'CREATE_BUG',
   'RETEST_BUG',
   'MARK_BUG_FIXED',
   'ADD_BUG_EVIDENCE',
+  'DELETE_BUG',
   'MANAGE_SYSTEMS',
   'MANAGE_ROLES',
   'MANAGE_USERS'
@@ -150,6 +177,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   RETEST_BUG: '复测 bug',
   MARK_BUG_FIXED: '标记修复',
   ADD_BUG_EVIDENCE: '补充证据',
+  DELETE_BUG: '删除 bug',
   MANAGE_SYSTEMS: '系统管理',
   MANAGE_ROLES: '角色管理',
   MANAGE_USERS: '用户管理'
