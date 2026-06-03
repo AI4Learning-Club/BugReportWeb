@@ -63,6 +63,16 @@ export const PERMISSION_CATALOG: PermissionCatalogItem[] = [
     apis: ['POST /bugs/:id/delete', 'DELETE /bugs/:id/permanent']
   },
   {
+    code: Permission.DELETE_BUG_ACTIVITY,
+    zhName: '删除活动记录',
+    enName: 'Delete Bug Activity',
+    group: 'Bug 生命周期',
+    summary: '允许删除 bug 详情页中的活动记录。',
+    description: '可在 bug 详情页移除指定活动记录。默认不分配给普通角色，系统管理员可直接拥有该权限。',
+    surfaces: ['Bug 详情页 / 活动记录'],
+    apis: ['DELETE /bugs/:id/activities/:activityId']
+  },
+  {
     code: Permission.MANAGE_SYSTEMS,
     zhName: '系统管理',
     enName: 'Manage Systems',

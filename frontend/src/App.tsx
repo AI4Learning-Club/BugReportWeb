@@ -4,6 +4,7 @@ import {
   Bug,
   CheckCircle2,
   ClipboardList,
+  Eye,
   LogOut,
   Pencil,
   Plus,
@@ -12,7 +13,8 @@ import {
   Shield,
   Trash2,
   Upload,
-  UserCheck
+  UserCheck,
+  X
 } from 'lucide-react';
 import { FormEvent, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -177,8 +179,8 @@ function Shell({ children }: { children: React.ReactNode }) {
 function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   async function submit(event: FormEvent) {
@@ -255,12 +257,16 @@ function AuthFrame({ title, children }: { title: string; children: React.ReactNo
 
 function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [bugs, setBugs] = useState<BugItem[]>([]);
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
   const [systemId, setSystemId] = useState('');
   const [status, setStatus] = useState('');
   const [deleted, setDeleted] = useState<'active' | 'only' | 'all'>('active');
   const [error, setError] = useState('');
+  const [deleteDialog, setDeleteDialog] = useState<{ bug: BugItem; mode: 'soft' | 'permanent' } | null>(null);
+  const [deleteDialogError, setDeleteDialogError] = useState('');
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const canCreateBug = hasPermission(user, 'CREATE_BUG');
   const canViewRecycleBin = Boolean(user?.isAdmin);
 
@@ -284,6 +290,43 @@ function Dashboard() {
   useEffect(() => {
     void load();
   }, [systemId, status, deleted]);
+
+  async function handleBugAction(bug: BugItem, action: string) {
+    if (action === 'edit') {
+      navigate(`/bugs/${bug.id}/edit`);
+      return;
+    }
+    if (action === 'delete') {
+      setDeleteDialog({ bug, mode: 'soft' });
+      setDeleteDialogError('');
+      return;
+    }
+    if (action === 'permanent-delete') {
+      setDeleteDialog({ bug, mode: 'permanent' });
+      setDeleteDialogError('');
+    }
+  }
+
+  async function confirmDeleteDialog(reason: string) {
+    if (!deleteDialog) {
+      return;
+    }
+    setDeleteDialogError('');
+    setDeleteSubmitting(true);
+    try {
+      if (deleteDialog.mode === 'soft') {
+        await api(`/bugs/${deleteDialog.bug.id}/delete`, { method: 'POST', body: JSON.stringify({ reason }) });
+      } else {
+        await api(`/bugs/${deleteDialog.bug.id}/permanent`, { method: 'DELETE' });
+      }
+      setDeleteDialog(null);
+      await load();
+    } catch (error) {
+      setDeleteDialogError(readError(error));
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  }
 
   return (
     <>
@@ -329,51 +372,59 @@ function Dashboard() {
             </tr>
           </thead>
           <tbody>
-            {bugs.map((bug) => (
-              <tr key={bug.id}>
-                <td data-label="标题"><Link className="row-link" to={`/bugs/${bug.id}`}>{bug.title}</Link></td>
-                <td data-label="系统">{bug.system.name}</td>
-                <td data-label="状态"><StatusBadge status={bug.status} /></td>
-                <td data-label="创建人">{bug.creator.displayName}</td>
-                <td data-label="截图">{bug.screenshotCount}</td>
-                <td data-label="运行信息">{bug.runtimeInfoCount}</td>
-                <td data-label="确认出现">{bug.appearedCount}</td>
-                <td data-label="未出现">{bug.notAppearedCount}</td>
-                {deleted !== 'active' && (
-                  <td data-label="删除信息">
-                    {bug.deletedAt ? (
-                      <div className="delete-meta">
-                        <span>{bug.deletedBy?.displayName ?? '未知用户'}</span>
-                        <span>{formatDateTime(bug.deletedAt)}</span>
-                      </div>
-                    ) : (
-                      '未删除'
-                    )}
-                  </td>
-                )}
-                <td data-label="操作">
-                  <div className="actions">
-                    {(!bug.deletedAt && (user?.isAdmin || bug.creator.id === user?.id)) && (
-                      <Link className="ghost compact" to={`/bugs/${bug.id}/edit`}><Pencil size={16} />编辑</Link>
-                    )}
-                    {bug.deletedAt && user?.isAdmin && (
-                      <button
-                        className="ghost compact danger"
-                        onClick={() => {
-                          if (!confirm(`确认彻底删除 bug「${bug.title}」吗？此操作不可恢复。`)) {
-                            return;
-                          }
-                          void api(`/bugs/${bug.id}/permanent`, { method: 'DELETE' }).then(() => load()).catch((loadError) => setError(readError(loadError)));
+            {bugs.map((bug) => {
+              const canEditBug = Boolean(!bug.deletedAt && (user?.isAdmin || bug.creator.id === user?.id));
+              const canSoftDeleteBug = Boolean(
+                !bug.deletedAt &&
+                hasPermission(user, 'DELETE_BUG') &&
+                (user?.isAdmin || bug.creator.id === user?.id)
+              );
+              const canPermanentDeleteBug = Boolean(bug.deletedAt && user?.isAdmin);
+              const hasRowAction = canEditBug || canSoftDeleteBug || canPermanentDeleteBug;
+              return (
+                <tr key={bug.id}>
+                  <td data-label="标题"><Link className="row-link" to={`/bugs/${bug.id}`}>{bug.title}</Link></td>
+                  <td data-label="系统">{bug.system.name}</td>
+                  <td data-label="状态"><StatusBadge status={bug.status} /></td>
+                  <td data-label="创建人">{bug.creator.displayName}</td>
+                  <td data-label="截图">{bug.screenshotCount}</td>
+                  <td data-label="运行信息">{bug.runtimeInfoCount}</td>
+                  <td data-label="确认出现">{bug.appearedCount}</td>
+                  <td data-label="未出现">{bug.notAppearedCount}</td>
+                  {deleted !== 'active' && (
+                    <td data-label="删除信息">
+                      {bug.deletedAt ? (
+                        <div className="delete-meta">
+                          <span>{bug.deletedBy?.displayName ?? '未知用户'}</span>
+                          <span>{formatDateTime(bug.deletedAt)}</span>
+                        </div>
+                      ) : (
+                        '未删除'
+                      )}
+                    </td>
+                  )}
+                  <td data-label="操作">
+                    <div className="actions bug-row-actions">
+                      <select
+                        className="action-select"
+                        value=""
+                        disabled={!hasRowAction}
+                        aria-label={`操作 bug ${bug.title}`}
+                        onChange={(event) => {
+                          void handleBugAction(bug, event.target.value);
                         }}
                       >
-                        <Archive size={16} />
-                        彻底删除
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                        <option value="">操作</option>
+                        {canEditBug && <option value="edit">编辑</option>}
+                        {canSoftDeleteBug && <option value="delete">删除</option>}
+                        {canPermanentDeleteBug && <option value="permanent-delete">彻底删除</option>}
+                      </select>
+                      <Link className="ghost compact" to={`/bugs/${bug.id}`}><Eye size={16} />详情</Link>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {bugs.length === 0 && (
               <tr>
                 <td colSpan={deleted !== 'active' ? 10 : 9} className="empty-cell">
@@ -384,6 +435,21 @@ function Dashboard() {
           </tbody>
         </table>
       </div>
+      {deleteDialog && (
+        <BugDeleteDialog
+          error={deleteDialogError}
+          mode={deleteDialog.mode}
+          submitting={deleteSubmitting}
+          title={deleteDialog.bug.title}
+          onCancel={() => {
+            if (!deleteSubmitting) {
+              setDeleteDialog(null);
+              setDeleteDialogError('');
+            }
+          }}
+          onConfirm={(reason) => void confirmDeleteDialog(reason)}
+        />
+      )}
     </>
   );
 }
@@ -516,11 +582,15 @@ function NewBugPage() {
             <div className="runtime-editor" key={index}>
               <div className="runtime-editor-header">
                 <span>运行信息 {index + 1}</span>
-                {runtimeInfos.length > 1 && (
-                  <button className="icon-button" type="button" onClick={() => setRuntimeInfos(runtimeInfos.filter((_, itemIndex) => itemIndex !== index))} title="删除运行信息">
-                    <Trash2 size={16} />
-                  </button>
-                )}
+                <div className="runtime-editor-actions">
+                  {runtimeInfos.length > 1 ? (
+                    <button className="icon-button" type="button" onClick={() => setRuntimeInfos(runtimeInfos.filter((_, itemIndex) => itemIndex !== index))} title="删除运行信息">
+                      <Trash2 size={16} />
+                    </button>
+                  ) : (
+                    <span className="runtime-editor-action-placeholder" aria-hidden="true" />
+                  )}
+                </div>
               </div>
               <input placeholder="标题" value={info.title} onChange={(event) => updateRuntimeDraft(index, 'title', event.target.value, runtimeInfos, setRuntimeInfos)} />
               <input placeholder="运行环境" value={info.environment} onChange={(event) => updateRuntimeDraft(index, 'environment', event.target.value, runtimeInfos, setRuntimeInfos)} />
@@ -545,6 +615,14 @@ function BugDetailPage() {
   const [retest, setRetest] = useState({ result: 'APPEARED', note: '' });
   const [statusNote, setStatusNote] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
+  const [activeRuntimeIndex, setActiveRuntimeIndex] = useState(0);
+  const [showRuntimeForm, setShowRuntimeForm] = useState(false);
+  const [permanentDeleteOpen, setPermanentDeleteOpen] = useState(false);
+  const [permanentDeleteSubmitting, setPermanentDeleteSubmitting] = useState(false);
+  const [permanentDeleteError, setPermanentDeleteError] = useState('');
+  const [activityDeleteTarget, setActivityDeleteTarget] = useState<BugActivity | null>(null);
+  const [activityDeleteSubmitting, setActivityDeleteSubmitting] = useState(false);
+  const [activityDeleteError, setActivityDeleteError] = useState('');
 
   async function load() {
     if (!id) return;
@@ -555,6 +633,20 @@ function BugDetailPage() {
   useEffect(() => {
     void load().catch((loadError) => setError(readError(loadError)));
   }, [id]);
+
+  useEffect(() => {
+    setActiveRuntimeIndex(0);
+  }, [id]);
+
+  useEffect(() => {
+    if (!bug) {
+      return;
+    }
+    const lastRuntimeIndex = Math.max(0, bug.runtimeInfos.length - 1);
+    if (activeRuntimeIndex > lastRuntimeIndex) {
+      setActiveRuntimeIndex(lastRuntimeIndex);
+    }
+  }, [activeRuntimeIndex, bug]);
 
   async function mutate(action: () => Promise<unknown>) {
     setError('');
@@ -576,10 +668,13 @@ function BugDetailPage() {
   const canEditBug = Boolean(!bug.deletedAt && (user?.isAdmin || bug.creator.id === user?.id));
   const canSoftDelete = Boolean(!bug.deletedAt && hasPermission(user, 'DELETE_BUG') && (user?.isAdmin || bug.creator.id === user?.id));
   const canPermanentDelete = Boolean(bug.deletedAt && user?.isAdmin);
+  const canDeleteActivity = hasPermission(user, 'DELETE_BUG_ACTIVITY');
   const nextStatus: BugStatus = bug.status === 'FIXED' ? 'OPEN' : 'FIXED';
   const statusActionLabel = nextStatus === 'FIXED' ? '标记为已修复' : '重新打开 bug';
   const latestFixActivity =
     bug.activities.find((activity) => activity.type === 'STATUS_CHANGED' && activity.toStatus === 'FIXED') ?? null;
+  const activeRuntimeInfo = bug.runtimeInfos[activeRuntimeIndex] ?? null;
+  const runtimeCount = bug.runtimeInfos.length;
 
   return (
     <>
@@ -598,7 +693,7 @@ function BugDetailPage() {
           </div>
         )}
       />
-      {error && <p className="error">{error}</p>}
+      <FloatingError message={error} />
       {bug.deletedAt && (
         <section className="panel deleted-banner">
           <div>
@@ -612,17 +707,9 @@ function BugDetailPage() {
             <button
               className="ghost compact danger"
               type="button"
-              onClick={async () => {
-                if (!confirm(`确认彻底删除 bug「${bug.title}」吗？此操作不可恢复。`)) {
-                  return;
-                }
-                setError('');
-                try {
-                  await api(`/bugs/${bug.id}/permanent`, { method: 'DELETE' });
-                  window.location.href = '/';
-                } catch (actionError) {
-                  setError(readError(actionError));
-                }
+              onClick={() => {
+                setPermanentDeleteOpen(true);
+                setPermanentDeleteError('');
               }}
             >
               <Archive size={16} />
@@ -631,212 +718,267 @@ function BugDetailPage() {
           )}
         </section>
       )}
-      <section className="detail-grid">
-        <div className="panel">
-          <div className="meta-row">
-            <StatusBadge status={bug.status} />
-            <span>{bug.system.name}</span>
-            <span>{bug.creator.displayName}</span>
-            <span>{severityLabel(bug.severity)}</span>
-          </div>
-          <p>{bug.description}</p>
-          <InfoBlock title="运行环境" value={bug.environment} />
-          <InfoBlock title="复现步骤" value={bug.steps} />
-          <InfoBlock title="期望结果" value={bug.expected} />
-          <InfoBlock title="实际结果" value={bug.actual} />
-          {bug.status === 'FIXED' && (
-            <div className="info-block">
-              <strong>修复信息</strong>
-              <p>
-                {bug.fixedBy?.displayName ?? '未知用户'}
-                {' · '}
-                {bug.fixedAt ? formatDateTime(bug.fixedAt) : '时间未知'}
-              </p>
-              {latestFixActivity?.note && <p>{latestFixActivity.note}</p>}
+      <section className="bug-detail-layout">
+        <div className="bug-detail-main">
+          <section className="detail-grid bug-detail-top">
+            <div className="panel">
+              <div className="meta-row">
+                <StatusBadge status={bug.status} />
+                <span>{bug.system.name}</span>
+                <span>{bug.creator.displayName}</span>
+                <span>{severityLabel(bug.severity)}</span>
+              </div>
+              <p>{bug.description}</p>
+              <InfoBlock title="运行环境" value={bug.environment} />
+              <InfoBlock title="复现步骤" value={bug.steps} />
+              <InfoBlock title="期望结果" value={bug.expected} />
+              <InfoBlock title="实际结果" value={bug.actual} />
+              {bug.status === 'FIXED' && (
+                <div className="info-block">
+                  <strong>修复信息</strong>
+                  <p>
+                    {bug.fixedBy?.displayName ?? '未知用户'}
+                    {' · '}
+                    {bug.fixedAt ? formatDateTime(bug.fixedAt) : '时间未知'}
+                  </p>
+                  {latestFixActivity?.note && <p>{latestFixActivity.note}</p>}
+                </div>
+              )}
+              <div className="stats">
+                <span>出现次数：{bug.appearedCount}</span>
+                <span>未出现：{bug.notAppearedCount}</span>
+              </div>
             </div>
-          )}
-          <div className="stats">
-            <span>出现次数：{bug.appearedCount}</span>
-            <span>未出现：{bug.notAppearedCount}</span>
-          </div>
-        </div>
-        {canChangeStatus && !bug.deletedAt && (
-          <div className="panel">
-            <h2>状态操作</h2>
-            <form
-              className="status-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void mutate(() =>
-                  api('/bugs/' + bug.id + '/status', {
-                    method: 'PATCH',
-                    body: JSON.stringify({ status: nextStatus, note: statusNote })
-                  })
-                ).then(() => setStatusNote(''));
-              }}
-            >
-              <p className="muted">
-                当前状态为{statusLabel(bug.status)}，你可以在这里{statusActionLabel}并填写备注。
-              </p>
-              <textarea
-                placeholder={nextStatus === 'FIXED' ? '填写修复说明、影响范围或验证方式' : '填写重新打开的原因'}
-                value={statusNote}
-                onChange={(event) => setStatusNote(event.target.value)}
-              />
-              <button className="primary compact" type="submit">
-                <CheckCircle2 size={16} />
-                {statusActionLabel}
-              </button>
-            </form>
-          </div>
-        )}
-        {canSoftDelete && (
-          <div className="panel">
-            <h2>删除 bug</h2>
-            <form
-              className="status-form"
-              onSubmit={async (event) => {
-                event.preventDefault();
-                setError('');
-                try {
-                  await api('/bugs/' + bug.id + '/delete', {
-                    method: 'POST',
-                    body: JSON.stringify({ reason: deleteReason })
-                  });
-                  setDeleteReason('');
-                  await load();
-                } catch (actionError) {
-                  setError(readError(actionError));
-                }
-              }}
-            >
-              <p className="muted">删除后 bug 会进入回收站，仅管理员可以执行最终彻底删除。</p>
-              <textarea
-                placeholder="填写删除原因，例如重复登记、误报或已合并到其他 bug"
-                value={deleteReason}
-                onChange={(event) => setDeleteReason(event.target.value)}
-              />
-              <button className="ghost compact danger" type="submit">
-                <Trash2 size={16} />
-                移入回收站
-              </button>
-            </form>
-          </div>
-        )}
-        <div className="panel">
-          <h2>截图</h2>
-          <div className="screenshots">
-            {bug.screenshots.map((shot) => (
-              <figure key={shot.id}>
-                <img src={assetUrl(shot.path)} alt={shot.caption ?? shot.originalName} />
-                <figcaption>{shot.caption ?? shot.originalName}</figcaption>
+            {canChangeStatus && !bug.deletedAt && (
+              <div className="panel">
+                <h2>状态操作</h2>
+                <form
+                  className="status-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void mutate(() =>
+                      api('/bugs/' + bug.id + '/status', {
+                        method: 'PATCH',
+                        body: JSON.stringify({ status: nextStatus, note: statusNote })
+                      })
+                    ).then(() => setStatusNote(''));
+                  }}
+                >
+                  <p className="muted">
+                    当前状态为{statusLabel(bug.status)}，你可以在这里{statusActionLabel}并填写备注。
+                  </p>
+                  <textarea
+                    placeholder={nextStatus === 'FIXED' ? '填写修复说明、影响范围或验证方式' : '填写重新打开的原因'}
+                    value={statusNote}
+                    onChange={(event) => setStatusNote(event.target.value)}
+                  />
+                  <button className="primary compact" type="submit">
+                    <CheckCircle2 size={16} />
+                    {statusActionLabel}
+                  </button>
+                </form>
+              </div>
+            )}
+            {canSoftDelete && (
+              <div className="panel">
+                <h2>删除 bug</h2>
+                <form
+                  className="status-form"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    setError('');
+                    try {
+                      await api('/bugs/' + bug.id + '/delete', {
+                        method: 'POST',
+                        body: JSON.stringify({ reason: deleteReason })
+                      });
+                      setDeleteReason('');
+                      await load();
+                    } catch (actionError) {
+                      setError(readError(actionError));
+                    }
+                  }}
+                >
+                  <p className="muted">删除后 bug 会进入回收站，仅管理员可以执行最终彻底删除。</p>
+                  <textarea
+                    placeholder="填写删除原因，例如重复登记、误报或已合并到其他 bug"
+                    value={deleteReason}
+                    onChange={(event) => setDeleteReason(event.target.value)}
+                  />
+                  <button className="ghost compact danger" type="submit">
+                    <Trash2 size={16} />
+                    移入回收站
+                  </button>
+                </form>
+              </div>
+            )}
+            <div className="panel">
+              <h2>截图</h2>
+              <div className="screenshots">
+                {bug.screenshots.map((shot) => (
+                  <figure key={shot.id}>
+                    <img src={assetUrl(shot.path)} alt={shot.caption ?? shot.originalName} />
+                    <figcaption>{shot.caption ?? shot.originalName}</figcaption>
+                    {canAddEvidence && !bug.deletedAt && (
+                      <button
+                        className="icon-button"
+                        onClick={() => mutate(() => api('/bugs/' + bug.id + '/screenshots/' + shot.id, { method: 'DELETE' }))}
+                        title="删除截图"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </figure>
+                ))}
+              </div>
+              {canAddEvidence && !bug.deletedAt && (
+                <form
+                  className="inline-upload"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!file) return;
+                    const data = new FormData();
+                    data.append('file', file);
+                    void mutate(() => api('/bugs/' + bug.id + '/screenshots', { method: 'POST', body: data })).then(() =>
+                      setFile(null)
+                    );
+                  }}
+                >
+                  <input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+                  <button className="ghost compact" type="submit"><Upload size={16} />上传</button>
+                </form>
+              )}
+            </div>
+            {canRetest && !bug.deletedAt && (
+              <div className="panel">
+                <h2>复测</h2>
+                <form
+                  className="grid two"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void mutate(() => api('/bugs/' + bug.id + '/retests', { method: 'POST', body: JSON.stringify(retest) }));
+                  }}
+                >
+                  <select value={retest.result} onChange={(event) => setRetest({ ...retest, result: event.target.value })}>
+                    <option value="APPEARED">仍然出现</option>
+                    <option value="NOT_APPEARED">未复现</option>
+                  </select>
+                  <input placeholder="备注" value={retest.note} onChange={(event) => setRetest({ ...retest, note: event.target.value })} />
+                  <button className="primary compact" type="submit">提交复测</button>
+                </form>
+              </div>
+            )}
+          </section>
+          <section className="panel bug-runtime-panel">
+            <div className="panel-heading-row">
+              <h2>运行信息</h2>
+              <div className="runtime-panel-actions">
+                {runtimeCount > 0 && (
+                  <div className="runtime-pager">
+                    <span>{activeRuntimeIndex + 1} / {runtimeCount}</span>
+                    <button
+                      className="ghost compact"
+                      type="button"
+                      disabled={runtimeCount < 2}
+                      onClick={() => setActiveRuntimeIndex((activeRuntimeIndex + runtimeCount - 1) % runtimeCount)}
+                    >
+                      上一个
+                    </button>
+                    <button
+                      className="primary compact"
+                      type="button"
+                      disabled={runtimeCount < 2}
+                      onClick={() => setActiveRuntimeIndex((activeRuntimeIndex + 1) % runtimeCount)}
+                    >
+                      下一个
+                    </button>
+                  </div>
+                )}
                 {canAddEvidence && !bug.deletedAt && (
                   <button
-                    className="icon-button"
-                    onClick={() => mutate(() => api('/bugs/' + bug.id + '/screenshots/' + shot.id, { method: 'DELETE' }))}
-                    title="删除截图"
+                    className="ghost compact"
+                    type="button"
+                    onClick={() => setShowRuntimeForm((showForm) => !showForm)}
                   >
-                    <Trash2 size={16} />
+                    <Plus size={16} />
+                    {showRuntimeForm ? '收起' : '添加'}
                   </button>
                 )}
-              </figure>
-            ))}
-          </div>
-          {canAddEvidence && !bug.deletedAt && (
-            <form
-              className="inline-upload"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!file) return;
-                const data = new FormData();
-                data.append('file', file);
-                void mutate(() => api('/bugs/' + bug.id + '/screenshots', { method: 'POST', body: data })).then(() =>
-                  setFile(null)
-                );
-              }}
-            >
-              <input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-              <button className="ghost compact" type="submit"><Upload size={16} />上传</button>
-            </form>
-          )}
+              </div>
+            </div>
+            <div className="runtime-carousel">
+              {activeRuntimeInfo ? (
+                <article key={activeRuntimeInfo.id} className="runtime-viewer">
+                  <div className="runtime-summary-row">
+                    <div className="runtime-title-block">
+                      <span>标题</span>
+                      <strong>{activeRuntimeInfo.title || '未命名运行信息'}</strong>
+                    </div>
+                    <div>
+                      <span>提交人</span>
+                      <strong>{activeRuntimeInfo.author?.displayName ?? '未知作者'}</strong>
+                    </div>
+                    {activeRuntimeInfo.environment && (
+                      <div>
+                        <span>环境说明</span>
+                        <p>{activeRuntimeInfo.environment}</p>
+                      </div>
+                    )}
+                    {canAddEvidence && !bug.deletedAt && (user?.isAdmin || activeRuntimeInfo.authorId === user?.id) && (
+                      <button
+                        className="icon-button"
+                        onClick={() => mutate(() => api('/bugs/' + bug.id + '/runtime-info/' + activeRuntimeInfo.id, { method: 'DELETE' }))}
+                        title="删除运行信息"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="runtime-log-block">
+                    <span>日志内容</span>
+                    <pre>{activeRuntimeInfo.logText}</pre>
+                  </div>
+                </article>
+              ) : (
+                <div className="empty-state">暂无运行信息</div>
+              )}
+            </div>
+            {canAddEvidence && !bug.deletedAt && showRuntimeForm && (
+                <form
+                  className="runtime-editor"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void mutate(() =>
+                      api('/bugs/' + bug.id + '/runtime-info', { method: 'POST', body: JSON.stringify(runtime) })
+                    ).then(() => {
+                      setRuntime({ title: '', environment: '', logText: '' });
+                      setShowRuntimeForm(false);
+                    });
+                  }}
+                >
+                  <input placeholder="标题" value={runtime.title} onChange={(event) => setRuntime({ ...runtime, title: event.target.value })} />
+                  <input
+                    placeholder="环境说明"
+                    value={runtime.environment}
+                    onChange={(event) => setRuntime({ ...runtime, environment: event.target.value })}
+                  />
+                  <textarea
+                    placeholder="日志内容"
+                    value={runtime.logText}
+                    onChange={(event) => setRuntime({ ...runtime, logText: event.target.value })}
+                  />
+                  <button className="ghost compact" type="submit"><Plus size={16} />保存运行信息</button>
+                </form>
+            )}
+          </section>
         </div>
-      </section>
-      <section className="panel">
-        <h2>运行信息</h2>
-        <div className="runtime-list">
-          {bug.runtimeInfos.map((info) => (
-            <article key={info.id}>
-              <header>
-                <div>
-                  <strong>{info.title}</strong>
-                  <span>{info.author?.displayName ?? '未知作者'}</span>
-                </div>
-                {canAddEvidence && !bug.deletedAt && (user?.isAdmin || info.authorId === user?.id) && (
-                  <button
-                    className="icon-button"
-                    onClick={() => mutate(() => api('/bugs/' + bug.id + '/runtime-info/' + info.id, { method: 'DELETE' }))}
-                    title="删除运行信息"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </header>
-              {info.environment && <p>{info.environment}</p>}
-              <pre>{info.logText}</pre>
-            </article>
-          ))}
-        </div>
-        {canAddEvidence && !bug.deletedAt && (
-          <form
-            className="runtime-editor"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void mutate(() =>
-                api('/bugs/' + bug.id + '/runtime-info', { method: 'POST', body: JSON.stringify(runtime) })
-              ).then(() => setRuntime({ title: '', environment: '', logText: '' }));
-            }}
-          >
-            <input placeholder="标题" value={runtime.title} onChange={(event) => setRuntime({ ...runtime, title: event.target.value })} />
-            <input
-              placeholder="环境说明"
-              value={runtime.environment}
-              onChange={(event) => setRuntime({ ...runtime, environment: event.target.value })}
-            />
-            <textarea
-              placeholder="日志内容"
-              value={runtime.logText}
-              onChange={(event) => setRuntime({ ...runtime, logText: event.target.value })}
-            />
-            <button className="ghost compact" type="submit"><Plus size={16} />添加运行信息</button>
-          </form>
-        )}
-      </section>
-      {canRetest && !bug.deletedAt && (
-        <section className="panel">
-          <h2>复测</h2>
-          <form
-            className="grid two"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void mutate(() => api('/bugs/' + bug.id + '/retests', { method: 'POST', body: JSON.stringify(retest) }));
-            }}
-          >
-            <select value={retest.result} onChange={(event) => setRetest({ ...retest, result: event.target.value })}>
-              <option value="APPEARED">仍然出现</option>
-              <option value="NOT_APPEARED">未复现</option>
-            </select>
-            <input placeholder="备注" value={retest.note} onChange={(event) => setRetest({ ...retest, note: event.target.value })} />
-            <button className="primary compact" type="submit">提交复测</button>
-          </form>
-        </section>
-      )}
-      <section className="panel">
-        <h2>活动记录</h2>
-        <div className="activity-list">
-          {bug.activities.map((activity) => {
-            const contextSummary = describeActivityContext(activity);
-            return (
-              <article key={activity.id} className="activity-item">
+        <section className="panel bug-activity-panel">
+          <h2>活动记录</h2>
+          <div className="activity-list">
+            {bug.activities.map((activity) => {
+              const contextSummary = describeActivityContext(activity);
+              return (
+                <article key={activity.id} className="activity-item">
                 <header>
                   <div>
                     <strong>{activityTitle(activity)}</strong>
@@ -846,6 +988,19 @@ function BugDetailPage() {
                       {formatDateTime(activity.createdAt)}
                     </span>
                   </div>
+                  {canDeleteActivity && (
+                    <button
+                      className="icon-button danger"
+                      type="button"
+                      title="删除活动记录"
+                      onClick={() => {
+                        setActivityDeleteTarget(activity);
+                        setActivityDeleteError('');
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </header>
                 {activity.note && <p>{activity.note}</p>}
                 {activity.fromStatus && activity.toStatus && (
@@ -867,10 +1022,62 @@ function BugDetailPage() {
                 )}
                 {contextSummary && <p className="muted">{contextSummary}</p>}
               </article>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </section>
       </section>
+      {permanentDeleteOpen && (
+        <BugDeleteDialog
+          error={permanentDeleteError}
+          mode="permanent"
+          submitting={permanentDeleteSubmitting}
+          title={bug.title}
+          onCancel={() => {
+            if (!permanentDeleteSubmitting) {
+              setPermanentDeleteOpen(false);
+              setPermanentDeleteError('');
+            }
+          }}
+          onConfirm={async () => {
+            setPermanentDeleteError('');
+            setPermanentDeleteSubmitting(true);
+            try {
+              await api(`/bugs/${bug.id}/permanent`, { method: 'DELETE' });
+              window.location.href = '/';
+            } catch (actionError) {
+              setPermanentDeleteError(readError(actionError));
+              setPermanentDeleteSubmitting(false);
+            }
+          }}
+        />
+      )}
+      {activityDeleteTarget && (
+        <BugActivityDeleteDialog
+          activity={activityDeleteTarget}
+          error={activityDeleteError}
+          submitting={activityDeleteSubmitting}
+          onCancel={() => {
+            if (!activityDeleteSubmitting) {
+              setActivityDeleteTarget(null);
+              setActivityDeleteError('');
+            }
+          }}
+          onConfirm={async () => {
+            setActivityDeleteError('');
+            setActivityDeleteSubmitting(true);
+            try {
+              await api('/bugs/' + bug.id + '/activities/' + activityDeleteTarget.id, { method: 'DELETE' });
+              setActivityDeleteTarget(null);
+              await load();
+            } catch (actionError) {
+              setActivityDeleteError(readError(actionError));
+            } finally {
+              setActivityDeleteSubmitting(false);
+            }
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1340,6 +1547,15 @@ function PageHeader({ title, action }: { title: string; action?: React.ReactNode
   );
 }
 
+function FloatingError({ message }: { message: string }) {
+  if (!message) return null;
+  return (
+    <p className="error floating-error" role="alert">
+      {message}
+    </p>
+  );
+}
+
 function StatusBadge({ status }: { status: BugStatus }) {
   return <span className={`status ${status.toLowerCase()}`}>{status === 'FIXED' ? '已修复' : '未修复'}</span>;
 }
@@ -1350,6 +1566,128 @@ function InfoBlock({ title, value }: { title: string; value: string | null }) {
     <div className="info-block">
       <strong>{title}</strong>
       <p>{value}</p>
+    </div>
+  );
+}
+
+function BugDeleteDialog({
+  error,
+  mode,
+  submitting,
+  title,
+  onCancel,
+  onConfirm
+}: {
+  error?: string;
+  mode: 'soft' | 'permanent';
+  submitting: boolean;
+  title: string;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState('');
+  const isPermanent = mode === 'permanent';
+  const normalizedReason = reason.trim();
+  const canSubmit = isPermanent || Boolean(normalizedReason);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!canSubmit || submitting) {
+      return;
+    }
+    onConfirm(normalizedReason);
+  }
+
+  return (
+    <div className="bug-delete-modal-backdrop" role="presentation">
+      <section className="bug-delete-modal" role="dialog" aria-modal="true" aria-labelledby="bug-delete-modal-title">
+        <header className="bug-delete-modal-header">
+          <div>
+            <h2 id="bug-delete-modal-title">{isPermanent ? '彻底删除 bug' : '移入回收站'}</h2>
+            <p>{isPermanent ? '此操作会永久删除数据，删除后无法恢复。' : '删除后 bug 会进入回收站，管理员仍可彻底删除。'}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onCancel} disabled={submitting} title="关闭窗口">
+            <X size={20} />
+          </button>
+        </header>
+        <form className="bug-delete-modal-body" onSubmit={submit}>
+          <div className="delete-target">
+            <span>目标 bug</span>
+            <strong>{title}</strong>
+          </div>
+          {isPermanent ? (
+            <p className="delete-warning">请确认你要彻底删除这条 bug。该操作不会进入回收站，也不能撤销。</p>
+          ) : (
+            <label>
+              删除原因
+              <textarea
+                autoFocus
+                placeholder="例如重复登记、误报或已合并到其他 bug"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+            </label>
+          )}
+          {error && <p className="error">{error}</p>}
+          <footer className="bug-delete-modal-actions">
+            <button className="ghost" type="button" onClick={onCancel} disabled={submitting}>取消</button>
+            <button className="ghost danger" type="submit" disabled={!canSubmit || submitting}>
+              <Trash2 size={16} />
+              {submitting ? '处理中...' : isPermanent ? '确认彻底删除' : '移入回收站'}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function BugActivityDeleteDialog({
+  activity,
+  error,
+  submitting,
+  onCancel,
+  onConfirm
+}: {
+  activity: BugActivity;
+  error?: string;
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="bug-delete-modal-backdrop" role="presentation">
+      <section className="bug-delete-modal" role="dialog" aria-modal="true" aria-labelledby="activity-delete-modal-title">
+        <header className="bug-delete-modal-header">
+          <div>
+            <h2 id="activity-delete-modal-title">删除活动记录</h2>
+            <p>删除后这条操作历史将从当前 bug 的活动记录中移除。</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onCancel} disabled={submitting} title="关闭窗口">
+            <X size={20} />
+          </button>
+        </header>
+        <div className="bug-delete-modal-body">
+          <div className="delete-target">
+            <span>目标记录</span>
+            <strong>{activityTitle(activity)}</strong>
+            <span>
+              {activity.actor.displayName}
+              {' · '}
+              {formatDateTime(activity.createdAt)}
+            </span>
+          </div>
+          {activity.note && <p className="delete-warning">{activity.note}</p>}
+          {error && <p className="error">{error}</p>}
+          <footer className="bug-delete-modal-actions">
+            <button className="ghost" type="button" onClick={onCancel} disabled={submitting}>取消</button>
+            <button className="ghost danger" type="button" onClick={onConfirm} disabled={submitting}>
+              <Trash2 size={16} />
+              {submitting ? '处理中...' : '确认删除记录'}
+            </button>
+          </footer>
+        </div>
+      </section>
     </div>
   );
 }

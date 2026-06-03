@@ -1,6 +1,6 @@
 @media (max-width: 720px) {
   body {
-    overflow-x: hidden;
+    overflow: hidden;
   }
 
   button,
@@ -12,14 +12,24 @@
   }
 
   .app-shell {
-    display: block;
-    min-height: 100vh;
+    height: 100vh;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  @supports (height: 100dvh) {
+    .app-shell {
+      height: 100dvh;
+    }
   }
 
   .sidebar {
     position: sticky;
     top: 0;
     z-index: 20;
+    flex: 0 0 auto;
     height: auto;
     display: grid;
     grid-template-columns: 1fr auto;
@@ -106,9 +116,21 @@
     transform: none;
   }
 
+  .app-shell:has(.permission-modal-backdrop) .nav {
+    display: none;
+  }
+
+  .app-shell:has(.bug-delete-modal-backdrop) .nav {
+    display: none;
+  }
+
   .content {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
     gap: 14px;
     padding: 18px 12px 128px;
+    overflow: hidden;
   }
 
   .page-header {
@@ -160,11 +182,52 @@
 
   .grid.two,
   .detail-grid,
+  .bug-detail-layout,
   .admin-grid,
   .role-row,
   .system-row,
   .inline-upload,
   .inline-edit {
+    grid-template-columns: 1fr;
+  }
+
+  .bug-detail-main,
+  .bug-detail-layout {
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .bug-detail-main {
+    grid-template-rows: none;
+  }
+
+  .bug-detail-top,
+  .bug-runtime-panel,
+  .bug-activity-panel,
+  .bug-activity-panel > .activity-list {
+    overflow: visible;
+  }
+
+  .panel-heading-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .runtime-pager {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    justify-content: stretch;
+  }
+
+  .runtime-pager button {
+    width: 100%;
+  }
+
+  .runtime-viewer pre {
+    max-height: 240px;
+  }
+
+  .runtime-summary-row {
     grid-template-columns: 1fr;
   }
 
@@ -195,6 +258,11 @@
 
   .editor-panel textarea {
     min-height: 72px;
+  }
+
+  .panel-form textarea,
+  .editor-panel textarea {
+    max-height: 240px;
   }
 
   .editor-shell {
@@ -299,7 +367,7 @@
   }
 
   .user-table tr {
-    border-radius: 18px;
+    border-radius: 8px;
     overflow: hidden;
   }
 
@@ -323,7 +391,7 @@
   .user-avatar {
     width: 44px;
     height: 44px;
-    border-radius: 14px;
+    border-radius: 8px;
   }
 
   .user-inline-edit {
@@ -391,31 +459,110 @@
     grid-template-columns: 1fr;
   }
 
-  .deleted-banner,
-  .role-admin-layout,
-  .permission-card,
-  .role-list-item,
-  .role-admin-actions,
-  .role-admin-create {
-    grid-template-columns: 1fr;
-    display: grid;
-  }
-
   .deleted-banner {
     justify-content: stretch;
   }
 
-  .role-admin-layout {
-    gap: 16px;
+  .bug-delete-modal-backdrop {
+    padding: 16px;
+    background: rgba(15, 23, 42, 0.62);
   }
 
-  .role-list-item,
-  .permission-card {
+  .bug-delete-modal {
+    max-height: calc(100vh - 32px);
+  }
+
+  .bug-delete-modal-header,
+  .bug-delete-modal-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bug-delete-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .permission-role-head,
+  .permission-role-actions,
+  .permission-role-create,
+  .permission-toolbar,
+  .permission-toolbar-filters,
+  .grant-toolbar,
+  .grant-layout,
+  .json-editor-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .permission-toolbar-actions,
+  .permission-actions-cell,
+  .permission-modal-footer {
     justify-content: stretch;
   }
 
-  .permission-card-meta {
-    justify-items: start;
+  .permission-toolbar-actions,
+  .grant-tabs,
+  .json-tabs {
+    grid-auto-flow: row;
+  }
+
+  .permission-modal-backdrop {
+    padding: 16px;
+    background: rgba(15, 23, 42, 0.62);
+  }
+
+  .permission-modal {
+    --permission-modal-side-gap: 18px;
+
+    width: 100%;
+    max-height: calc(100vh - 112px);
+  }
+
+  .permission-modal-header,
+  .grant-toolbar,
+  .grant-layout,
+  .json-tabs,
+  .json-description,
+  .json-editor-toolbar,
+  .json-editor,
+  .permission-modal-footer {
+    margin-left: 18px;
+    margin-right: 18px;
+  }
+
+  .permission-modal-header {
+    padding: 20px 18px 14px;
+  }
+
+  .grant-layout {
+    padding: 14px 18px 0;
+  }
+
+  .grant-category-list {
+    padding-right: 0;
+    padding-bottom: 12px;
+    border-right: 0;
+    border-bottom: 1px solid #e6edf3;
+  }
+
+  .permission-table,
+  .grant-list-table {
+    min-width: 760px;
+  }
+
+  .grant-list-wrap,
+  .permission-table-wrap {
+    overflow: auto;
+  }
+
+  .content > .table-wrap,
+  .content > .panel-form,
+  .content > .editor-shell,
+  .content > .detail-grid,
+  .content > .bug-detail-layout,
+  .content > .admin-tab-panel {
+    min-height: 0;
+    overflow: auto;
   }
 
   .admin-role-label {

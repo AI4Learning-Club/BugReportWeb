@@ -21,6 +21,8 @@ import { RequestWithUser } from '../auth/auth.types';
 import { Permissions } from '../auth/permissions.decorator';
 import { BugsService } from './bugs.service';
 
+const screenshotUploadMaxSizeBytes = 50 * 1024 * 1024;
+
 const screenshotStorage = diskStorage({
   destination: (_req, _file, callback) => {
     const destination = 'uploads/bug-screenshots';
@@ -34,7 +36,7 @@ const screenshotStorage = diskStorage({
 
 const screenshotUpload = FileInterceptor('file', {
   storage: screenshotStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: screenshotUploadMaxSizeBytes },
   fileFilter: (_req, file, callback) => {
     callback(null, file.mimetype.startsWith('image/'));
   }
@@ -97,6 +99,16 @@ export class BugsController {
   @Delete(':id/permanent')
   permanentDelete(@Param('id') id: string, @Req() request: RequestWithUser) {
     return this.bugsService.permanentDelete(id, request.user);
+  }
+
+  @Delete(':id/activities/:activityId')
+  @Permissions(Permission.DELETE_BUG_ACTIVITY)
+  removeActivity(
+    @Param('id') id: string,
+    @Param('activityId') activityId: string,
+    @Req() request: RequestWithUser
+  ) {
+    return this.bugsService.removeActivity(id, activityId, request.user);
   }
 
   @Patch(':id/status')

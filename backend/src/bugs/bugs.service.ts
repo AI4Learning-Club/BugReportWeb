@@ -220,6 +220,21 @@ export class BugsService {
     return { ok: true };
   }
 
+  async removeActivity(bugId: string, activityId: string, user: AuthUser) {
+    await this.detail(bugId, user);
+
+    const activity = await this.prisma.bugActivity.findFirst({
+      where: { id: activityId, bugId },
+      select: { id: true }
+    });
+    if (!activity) {
+      throw new NotFoundException('Activity not found');
+    }
+
+    await this.prisma.bugActivity.delete({ where: { id: activityId } });
+    return { ok: true };
+  }
+
   async updateStatus(id: string, body: StatusBody, user: AuthUser) {
     const bug = await this.ensureBug(id);
     const status = this.normalizeStatus(body.status);

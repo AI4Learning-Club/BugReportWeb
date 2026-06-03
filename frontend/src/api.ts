@@ -2,7 +2,10 @@ function resolveApiBase() {
   if (import.meta.env.VITE_API_BASE) {
     return import.meta.env.VITE_API_BASE;
   }
-  if (window.location.port === '5173') {
+  const isLocalVite =
+    ['localhost', '127.0.0.1'].includes(window.location.hostname) &&
+    /^517\d$/.test(window.location.port);
+  if (isLocalVite) {
     return `${window.location.protocol}//${window.location.hostname}:3001`;
   }
   return window.location.origin;
@@ -24,6 +27,7 @@ export type Permission =
   | 'MARK_BUG_FIXED'
   | 'ADD_BUG_EVIDENCE'
   | 'DELETE_BUG'
+  | 'DELETE_BUG_ACTIVITY'
   | 'MANAGE_SYSTEMS'
   | 'MANAGE_ROLES'
   | 'MANAGE_USERS';
@@ -167,6 +171,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'MARK_BUG_FIXED',
   'ADD_BUG_EVIDENCE',
   'DELETE_BUG',
+  'DELETE_BUG_ACTIVITY',
   'MANAGE_SYSTEMS',
   'MANAGE_ROLES',
   'MANAGE_USERS'
@@ -178,6 +183,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MARK_BUG_FIXED: '标记修复',
   ADD_BUG_EVIDENCE: '补充证据',
   DELETE_BUG: '删除 bug',
+  DELETE_BUG_ACTIVITY: '删除活动记录',
   MANAGE_SYSTEMS: '系统管理',
   MANAGE_ROLES: '角色管理',
   MANAGE_USERS: '用户管理'
