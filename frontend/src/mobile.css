@@ -13,16 +13,10 @@
   }
 
   .app-shell {
-    min-height: 100vh;
+    min-height: var(--app-viewport-height);
     display: flex;
     flex-direction: column;
     overflow: visible;
-  }
-
-  @supports (height: 100dvh) {
-    .app-shell {
-      min-height: 100dvh;
-    }
   }
 
   .sidebar {
@@ -74,7 +68,7 @@
   .nav {
     position: fixed;
     right: 10px;
-    bottom: max(10px, env(safe-area-inset-bottom));
+    bottom: calc(max(10px, env(safe-area-inset-bottom)) + var(--app-viewport-bottom-offset));
     left: 10px;
     z-index: 30;
     display: grid;
@@ -129,7 +123,7 @@
     min-height: 0;
     height: auto;
     gap: 14px;
-    padding: 18px 12px calc(128px + env(safe-area-inset-bottom));
+    padding: 18px 12px calc(128px + env(safe-area-inset-bottom) + var(--app-viewport-bottom-offset));
     overflow: visible;
   }
 
@@ -469,13 +463,7 @@
   }
 
   .bug-delete-modal {
-    max-height: calc(100vh - 32px);
-  }
-
-  @supports (height: 100dvh) {
-    .bug-delete-modal {
-      max-height: calc(100dvh - 32px);
-    }
+    max-height: calc(var(--app-viewport-height) - 32px);
   }
 
   .bug-delete-modal-header,
@@ -521,13 +509,7 @@
     --permission-modal-side-gap: 18px;
 
     width: 100%;
-    max-height: calc(100vh - 112px);
-  }
-
-  @supports (height: 100dvh) {
-    .permission-modal {
-      max-height: calc(100dvh - 112px);
-    }
+    max-height: calc(var(--app-viewport-height) - 112px);
   }
 
   .permission-modal-header,
