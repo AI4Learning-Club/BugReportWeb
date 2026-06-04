@@ -708,26 +708,26 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
                       const focused = focusedPermissionCode === permission.code;
                       return (
                         <tr key={permission.code} className={focused ? 'focused' : ''}>
-                          <td>
+                          <td data-label="选择">
                             <input
                               type="checkbox"
                               checked={checked}
                               onChange={(event) => toggleDraftPermission(permission.code, event.target.checked)}
                             />
                           </td>
-                          <td>
+                          <td data-label="权限名称">
                             <div className="permission-name-cell">
                               <strong>{permission.zhName}</strong>
                               <span>{permission.code}</span>
                             </div>
                           </td>
-                          <td>
+                          <td data-label="权限描述">
                             <div className="grant-description-cell">
                               <strong>{permission.summary}</strong>
                               <span>{permission.description}</span>
                             </div>
                           </td>
-                          <td>
+                          <td data-label="关联 API/事件">
                             <div className="grant-related-links">
                               {relatedPreview.map((entry, index) => (
                                 <span key={permission.code + '-' + entry.label + '-' + index}>[{entry.kind}] {entry.label}</span>

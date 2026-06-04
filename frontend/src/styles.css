@@ -120,12 +120,10 @@ pre {
 @keyframes page-enter {
   from {
     opacity: 0;
-    transform: translateY(10px);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -364,6 +362,12 @@ pre {
 .content > .table-wrap {
   overflow-x: auto;
   overflow-y: visible;
+}
+
+.app-shell:has(.permission-modal-backdrop) .content,
+.app-shell:has(.bug-delete-modal-backdrop) .content {
+  position: relative;
+  z-index: 100;
 }
 
 .page-header {
