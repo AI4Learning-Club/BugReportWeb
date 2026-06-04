@@ -17,6 +17,7 @@ enum Permission {
   CREATE_FEATURE
   UPDATE_FEATURE
   DELETE_FEATURE
+  DELETE_FEATURE_ACTIVITY
   VIEW_STATS
   MANAGE_SYSTEMS
   MANAGE_ROLES
@@ -74,6 +75,19 @@ enum FeatureStatus {
   DONE
 }
 
+enum FeatureActivityType {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  DELETED
+  OWNER_CLAIMED
+  OWNER_DELEGATED
+  OWNER_REVOKED
+  RELATED_JOINED
+  RELATED_ADDED
+  RELATED_REMOVED
+}
+
 model Role {
   id          String       @id @default(cuid())
   name        String       @unique
@@ -108,6 +122,7 @@ model User {
   featureRelations     FeatureRelatedUser[]
   completedFeatures    Feature[]            @relation("FeatureCompleter")
   deletedFeatures      Feature[]            @relation("FeatureDeleter")
+  featureActivities    FeatureActivity[]
 }
 
 model TrackedSystem {
@@ -260,12 +275,32 @@ model Feature {
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
   relatedUsers  FeatureRelatedUser[]
+  activities    FeatureActivity[]
 
   @@index([systemId])
   @@index([creatorId])
   @@index([ownerId])
   @@index([status])
   @@index([deletedAt])
+}
+
+model FeatureActivity {
+  id         String              @id @default(cuid())
+  featureId  String
+  feature    Feature             @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  actorId    String
+  actor      User                @relation(fields: [actorId], references: [id])
+  type       FeatureActivityType
+  note       String?
+  fromStatus FeatureStatus?
+  toStatus   FeatureStatus?
+  changes    Json?
+  context    Json?
+  createdAt  DateTime            @default(now())
+
+  @@index([featureId, createdAt])
+  @@index([actorId])
+  @@index([type])
 }
 
 model FeatureRelatedUser {

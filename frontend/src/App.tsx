@@ -15,9 +15,7 @@ import {
   Shield,
   Sparkles,
   Trash2,
-  Upload,
-  UserCheck,
-  X
+  Upload
 } from 'lucide-react';
 import { FormEvent, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -27,6 +25,8 @@ import {
   BugDetail,
   BugItem,
   BugStatus,
+  FeatureActivity,
+  FeatureDetail,
   FeatureItem,
   FeatureStatus,
   KpiOverview,
@@ -36,15 +36,25 @@ import {
   User,
   api,
   assetUrl,
-  claimBugOwner,
-  claimFeatureOwner,
-  hasPermission,
-  joinBugPersonnel,
-  joinFeaturePersonnel,
-  patchBugPersonnel,
-  patchFeaturePersonnel
+  hasPermission
 } from './api';
+import {
+  ActivityListDialog,
+  BugActivityDeleteDialog,
+  BugDeleteDialog,
+  BugStatusDialog,
+  ConfirmDeleteDialog,
+  CreateSystemDialog,
+  EvidenceUploadDialog,
+  FeatureActivityDeleteDialog,
+  FeatureStatusDialog,
+  RuntimeInfoDialog,
+  UserManageDialog
+} from './AppDialogs';
+import { activityTitle, formatDateTime } from './activityUtils';
+import { BugRetestDialog, PersonnelPanel } from './PersonnelPanel';
 import { RoleAdminPanel } from './RoleAdminPanel';
+import { RuntimeInfoFields } from './RuntimeInfoFields';
 
 type AuthContextValue = {
   user: User | null;
@@ -165,7 +175,13 @@ function Shell({ children }: { children: React.ReactNode }) {
       hasPermission(user, 'MANAGE_ROLES') ||
       hasPermission(user, 'MANAGE_USERS')
   );
-  const isActive = (path: string) => (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path));
+  const isActive = (path: string) => {
+    if (path === '/') return location.pathname === '/';
+    if (path === '/features') {
+      return location.pathname === '/features' || (location.pathname.startsWith('/features/') && location.pathname !== '/features/new');
+    }
+    return location.pathname.startsWith(path);
+  };
 
   return (
     <div className="app-shell">
@@ -625,9 +641,10 @@ function NewBugPage() {
                   )}
                 </div>
               </div>
-              <input placeholder="标题" value={info.title} onChange={(event) => updateRuntimeDraft(index, 'title', event.target.value, runtimeInfos, setRuntimeInfos)} />
-              <input placeholder="运行环境" value={info.environment} onChange={(event) => updateRuntimeDraft(index, 'environment', event.target.value, runtimeInfos, setRuntimeInfos)} />
-              <textarea placeholder="报错日志" value={info.logText} onChange={(event) => updateRuntimeDraft(index, 'logText', event.target.value, runtimeInfos, setRuntimeInfos)} />
+              <RuntimeInfoFields
+                value={info}
+                onChange={(next) => setRuntimeInfos(runtimeInfos.map((draft, itemIndex) => (itemIndex === index ? next : draft)))}
+              />
             </div>
           ))}
         </section>
@@ -643,11 +660,17 @@ function BugDetailPage() {
   const { user } = useAuth();
   const [bug, setBug] = useState<BugDetail | null>(null);
   const [error, setError] = useState('');
-  const [runtime, setRuntime] = useState({ title: '', environment: '', logText: '' });
-  const [file, setFile] = useState<File | null>(null);
-  const [retest, setRetest] = useState({ result: 'APPEARED', note: '' });
   const [activeRuntimeIndex, setActiveRuntimeIndex] = useState(0);
-  const [showRuntimeForm, setShowRuntimeForm] = useState(false);
+  const [retestDialogOpen, setRetestDialogOpen] = useState(false);
+  const [retestDialogSubmitting, setRetestDialogSubmitting] = useState(false);
+  const [retestDialogError, setRetestDialogError] = useState('');
+  const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
+  const [runtimeDialogSubmitting, setRuntimeDialogSubmitting] = useState(false);
+  const [runtimeDialogError, setRuntimeDialogError] = useState('');
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadDialogSubmitting, setUploadDialogSubmitting] = useState(false);
+  const [uploadDialogError, setUploadDialogError] = useState('');
+  const [activityListOpen, setActivityListOpen] = useState(false);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [statusDialogSubmitting, setStatusDialogSubmitting] = useState(false);
   const [statusDialogError, setStatusDialogError] = useState('');
@@ -740,6 +763,18 @@ function BugDetailPage() {
                 {statusActionLabel}
               </button>
             )}
+            {canRetest && !bug.deletedAt && (
+              <button
+                className="ghost compact"
+                type="button"
+                onClick={() => {
+                  setRetestDialogOpen(true);
+                  setRetestDialogError('');
+                }}
+              >
+                提交复测
+              </button>
+            )}
             {canSoftDelete && (
               <button
                 className="ghost compact danger"
@@ -817,6 +852,7 @@ function BugDetailPage() {
                   relatedUsers={bug.relatedUsers}
                   disabled={Boolean(bug.deletedAt)}
                   onUpdated={load}
+                  user={user}
                 />
               </div>
               <div className="stats bug-detail-stats">
@@ -825,7 +861,21 @@ function BugDetailPage() {
               </div>
             </div>
             <div className="panel">
-              <h2>截图</h2>
+              <div className="panel-heading-row">
+                <h2>截图</h2>
+                {canAddEvidence && !bug.deletedAt && (
+                  <button
+                    className="ghost compact"
+                    type="button"
+                    onClick={() => {
+                      setUploadDialogOpen(true);
+                      setUploadDialogError('');
+                    }}
+                  >
+                    <Upload size={16} />上传截图
+                  </button>
+                )}
+              </div>
               <div className="screenshots">
                 {bug.screenshots.map((shot) => (
                   <figure key={shot.id}>
@@ -842,44 +892,9 @@ function BugDetailPage() {
                     )}
                   </figure>
                 ))}
+                {bug.screenshots.length === 0 && <p className="muted">暂无截图</p>}
               </div>
-              {canAddEvidence && !bug.deletedAt && (
-                <form
-                  className="inline-upload"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!file) return;
-                    const data = new FormData();
-                    data.append('file', file);
-                    void mutate(() => api('/bugs/' + bug.id + '/screenshots', { method: 'POST', body: data })).then(() =>
-                      setFile(null)
-                    );
-                  }}
-                >
-                  <input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-                  <button className="ghost compact" type="submit"><Upload size={16} />上传</button>
-                </form>
-              )}
             </div>
-            {canRetest && !bug.deletedAt && (
-              <div className="panel">
-                <h2>复测</h2>
-                <form
-                  className="grid two"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void mutate(() => api('/bugs/' + bug.id + '/retests', { method: 'POST', body: JSON.stringify(retest) }));
-                  }}
-                >
-                  <select value={retest.result} onChange={(event) => setRetest({ ...retest, result: event.target.value })}>
-                    <option value="APPEARED">仍然出现</option>
-                    <option value="NOT_APPEARED">未复现</option>
-                  </select>
-                  <input placeholder="备注" value={retest.note} onChange={(event) => setRetest({ ...retest, note: event.target.value })} />
-                  <button className="primary compact" type="submit">提交复测</button>
-                </form>
-              </div>
-            )}
           </section>
           <section className="panel bug-runtime-panel">
             <div className="panel-heading-row">
@@ -910,10 +925,13 @@ function BugDetailPage() {
                   <button
                     className="ghost compact"
                     type="button"
-                    onClick={() => setShowRuntimeForm((showForm) => !showForm)}
+                    onClick={() => {
+                      setRuntimeDialogOpen(true);
+                      setRuntimeDialogError('');
+                    }}
                   >
                     <Plus size={16} />
-                    {showRuntimeForm ? '收起' : '添加'}
+                    添加
                   </button>
                 )}
               </div>
@@ -955,90 +973,125 @@ function BugDetailPage() {
                 <div className="empty-state">暂无运行信息</div>
               )}
             </div>
-            {canAddEvidence && !bug.deletedAt && showRuntimeForm && (
-                <form
-                  className="runtime-editor"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void mutate(() =>
-                      api('/bugs/' + bug.id + '/runtime-info', { method: 'POST', body: JSON.stringify(runtime) })
-                    ).then(() => {
-                      setRuntime({ title: '', environment: '', logText: '' });
-                      setShowRuntimeForm(false);
-                    });
-                  }}
-                >
-                  <input placeholder="标题" value={runtime.title} onChange={(event) => setRuntime({ ...runtime, title: event.target.value })} />
-                  <input
-                    placeholder="环境说明"
-                    value={runtime.environment}
-                    onChange={(event) => setRuntime({ ...runtime, environment: event.target.value })}
-                  />
-                  <textarea
-                    placeholder="日志内容"
-                    value={runtime.logText}
-                    onChange={(event) => setRuntime({ ...runtime, logText: event.target.value })}
-                  />
-                  <button className="ghost compact" type="submit"><Plus size={16} />保存运行信息</button>
-                </form>
-            )}
           </section>
         </div>
         <section className="panel bug-activity-panel">
           <h2>活动记录</h2>
-          <div className="activity-list">
-            {bug.activities.map((activity) => {
-              const contextSummary = describeActivityContext(activity);
-              return (
-                <article key={activity.id} className="activity-item">
+          <div className="activity-list activity-list-summary">
+            {bug.activities.slice(0, 5).map((activity) => (
+              <article key={activity.id} className="activity-item">
                 <header>
                   <div>
-                    <strong>{activityTitle(activity)}</strong>
+                    <strong>{activityTitle(activity, 'bug')}</strong>
                     <span>
                       {activity.actor.displayName}
                       {' · '}
                       {formatDateTime(activity.createdAt)}
                     </span>
                   </div>
-                  {canDeleteActivity && (
-                    <button
-                      className="icon-button danger"
-                      type="button"
-                      title="删除活动记录"
-                      onClick={() => {
-                        setActivityDeleteTarget(activity);
-                        setActivityDeleteError('');
-                      }}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
                 </header>
                 {activity.note && <p>{activity.note}</p>}
-                {activity.fromStatus && activity.toStatus && (
-                  <p className="muted">
-                    状态：{statusLabel(activity.fromStatus)} {'->'} {statusLabel(activity.toStatus)}
-                  </p>
-                )}
-                {activity.changes && activity.changes.length > 0 && (
-                  <div className="activity-changes">
-                    {activity.changes.map((change, index) => (
-                      <div key={activity.id + '-' + change.field + '-' + index} className="activity-change-row">
-                        <strong>{fieldLabel(change.field)}</strong>
-                        <span>{formatChangeValue(change.from)}</span>
-                        <span className="muted">-&gt;</span>
-                        <span>{formatChangeValue(change.to)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {contextSummary && <p className="muted">{contextSummary}</p>}
               </article>
-              );
-            })}
+            ))}
+            {bug.activities.length === 0 && <p className="muted">暂无活动记录</p>}
           </div>
+          {bug.activities.length > 0 && (
+            <button className="ghost compact activity-view-all" type="button" onClick={() => setActivityListOpen(true)}>
+              查看全部活动 ({bug.activities.length})
+            </button>
+          )}
         </section>
       </section>
+      {retestDialogOpen && (
+        <BugRetestDialog
+          error={retestDialogError}
+          submitting={retestDialogSubmitting}
+          onClose={() => {
+            if (!retestDialogSubmitting) {
+              setRetestDialogOpen(false);
+              setRetestDialogError('');
+            }
+          }}
+          onConfirm={async (payload) => {
+            setRetestDialogError('');
+            setRetestDialogSubmitting(true);
+            try {
+              await api('/bugs/' + bug.id + '/retests', { method: 'POST', body: JSON.stringify(payload) });
+              setRetestDialogOpen(false);
+              await load();
+            } catch (actionError) {
+              setRetestDialogError(readError(actionError));
+            } finally {
+              setRetestDialogSubmitting(false);
+            }
+          }}
+        />
+      )}
+      {runtimeDialogOpen && (
+        <RuntimeInfoDialog
+          error={runtimeDialogError}
+          submitting={runtimeDialogSubmitting}
+          onClose={() => {
+            if (!runtimeDialogSubmitting) {
+              setRuntimeDialogOpen(false);
+              setRuntimeDialogError('');
+            }
+          }}
+          onConfirm={async (payload) => {
+            setRuntimeDialogError('');
+            setRuntimeDialogSubmitting(true);
+            try {
+              await api('/bugs/' + bug.id + '/runtime-info', { method: 'POST', body: JSON.stringify(payload) });
+              setRuntimeDialogOpen(false);
+              await load();
+            } catch (actionError) {
+              setRuntimeDialogError(readError(actionError));
+            } finally {
+              setRuntimeDialogSubmitting(false);
+            }
+          }}
+        />
+      )}
+      {uploadDialogOpen && (
+        <EvidenceUploadDialog
+          error={uploadDialogError}
+          submitting={uploadDialogSubmitting}
+          onClose={() => {
+            if (!uploadDialogSubmitting) {
+              setUploadDialogOpen(false);
+              setUploadDialogError('');
+            }
+          }}
+          onConfirm={async (file) => {
+            setUploadDialogError('');
+            setUploadDialogSubmitting(true);
+            try {
+              const data = new FormData();
+              data.append('file', file);
+              await api('/bugs/' + bug.id + '/screenshots', { method: 'POST', body: data });
+              setUploadDialogOpen(false);
+              await load();
+            } catch (actionError) {
+              setUploadDialogError(readError(actionError));
+            } finally {
+              setUploadDialogSubmitting(false);
+            }
+          }}
+        />
+      )}
+      {activityListOpen && (
+        <ActivityListDialog
+          activities={bug.activities}
+          kind="bug"
+          canDeleteActivity={canDeleteActivity}
+          onClose={() => setActivityListOpen(false)}
+          onDeleteActivity={(activity) => {
+            setActivityListOpen(false);
+            setActivityDeleteTarget(activity as BugActivity);
+            setActivityDeleteError('');
+          }}
+        />
+      )}
       {statusDialogOpen && (
         <BugStatusDialog
           actionLabel={statusActionLabel}
@@ -1414,12 +1467,19 @@ function NewFeaturePage() {
 function FeatureDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
-  const [feature, setFeature] = useState<FeatureItem | null>(null);
+  const [feature, setFeature] = useState<FeatureDetail | null>(null);
   const [error, setError] = useState('');
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [statusDialogSubmitting, setStatusDialogSubmitting] = useState(false);
+  const [statusDialogError, setStatusDialogError] = useState('');
+  const [activityListOpen, setActivityListOpen] = useState(false);
+  const [activityDeleteTarget, setActivityDeleteTarget] = useState<FeatureActivity | null>(null);
+  const [activityDeleteSubmitting, setActivityDeleteSubmitting] = useState(false);
+  const [activityDeleteError, setActivityDeleteError] = useState('');
 
   async function load() {
     if (!id) return;
-    setFeature(await api<FeatureItem>(`/features/${id}`));
+    setFeature(await api<FeatureDetail>(`/features/${id}`));
   }
 
   useEffect(() => {
@@ -1432,6 +1492,7 @@ function FeatureDetailPage() {
 
   const canEdit = Boolean(!feature.deletedAt && (user?.isAdmin || feature.creator.id === user?.id));
   const canUpdate = hasPermission(user, 'UPDATE_FEATURE');
+  const canDeleteActivity = hasPermission(user, 'DELETE_FEATURE_ACTIVITY');
 
   return (
     <>
@@ -1444,50 +1505,153 @@ function FeatureDetailPage() {
               <Link className="ghost compact" to={`/features/${feature.id}/edit`}><Pencil size={16} />编辑</Link>
             )}
             {canUpdate && !feature.deletedAt && (
-              <select
-                className="action-select"
-                value={feature.status}
-                onChange={async (event) => {
-                  try {
-                    await api(`/features/${feature.id}/status`, {
-                      method: 'PATCH',
-                      body: JSON.stringify({ status: event.target.value })
-                    });
-                    await load();
-                  } catch (actionError) {
-                    setError(readError(actionError));
-                  }
+              <button
+                className="ghost compact"
+                type="button"
+                onClick={() => {
+                  setStatusDialogOpen(true);
+                  setStatusDialogError('');
                 }}
               >
-                <option value="PLANNED">规划中</option>
-                <option value="IN_PROGRESS">进行中</option>
-                <option value="DONE">已完成</option>
-              </select>
+                变更状态
+              </button>
             )}
           </div>
         )}
       />
       {error && <p className="error">{error}</p>}
-      <section className="panel">
-        <div className="meta-row">
-          <FeatureStatusBadge status={feature.status} />
-          <span>系统：{feature.system.name}</span>
-          <span>创建人：{feature.creator.displayName}</span>
-          <span>优先级：{severityLabel(feature.priority)}</span>
+      <section className="bug-detail-layout">
+        <div className="bug-detail-main">
+          <section className="detail-grid bug-detail-top">
+            <div className="panel bug-summary-panel wide">
+              <div className="bug-summary-header">
+                <div className="meta-row bug-summary-meta">
+                  <FeatureStatusBadge status={feature.status} />
+                  <span>系统：{feature.system.name}</span>
+                  <span>创建人：{feature.creator.displayName}</span>
+                  <span>优先级：{severityLabel(feature.priority)}</span>
+                </div>
+              </div>
+              <div className="detail-section-stack">
+                <InfoBlock title="描述" value={feature.description} tone="primary" />
+                {feature.status === 'DONE' && (
+                  <div className="info-block info-block-fixed">
+                    <strong>完成信息</strong>
+                    <p>
+                      {feature.completedBy?.displayName ?? '未知'}
+                      {' · '}
+                      {feature.completedAt ? formatDateTime(feature.completedAt) : '时间未知'}
+                    </p>
+                  </div>
+                )}
+                <PersonnelPanel
+                  kind="feature"
+                  entityId={feature.id}
+                  owner={feature.owner}
+                  relatedUsers={feature.relatedUsers}
+                  disabled={Boolean(feature.deletedAt)}
+                  onUpdated={load}
+                  user={user}
+                />
+              </div>
+            </div>
+          </section>
         </div>
-        <InfoBlock title="描述" value={feature.description} tone="primary" />
-        {feature.status === 'DONE' && (
-          <p>完成人：{feature.completedBy?.displayName ?? '未知'} · {feature.completedAt ? formatDateTime(feature.completedAt) : ''}</p>
-        )}
-        <PersonnelPanel
-          kind="feature"
-          entityId={feature.id}
-          owner={feature.owner}
-          relatedUsers={feature.relatedUsers}
-          disabled={Boolean(feature.deletedAt)}
-          onUpdated={load}
-        />
+        <section className="panel bug-activity-panel">
+          <h2>活动记录</h2>
+          <div className="activity-list activity-list-summary">
+            {feature.activities.slice(0, 5).map((activity) => (
+              <article key={activity.id} className="activity-item">
+                <header>
+                  <div>
+                    <strong>{activityTitle(activity, 'feature')}</strong>
+                    <span>
+                      {activity.actor.displayName}
+                      {' · '}
+                      {formatDateTime(activity.createdAt)}
+                    </span>
+                  </div>
+                </header>
+                {activity.note && <p>{activity.note}</p>}
+              </article>
+            ))}
+            {feature.activities.length === 0 && <p className="muted">暂无活动记录</p>}
+          </div>
+          {feature.activities.length > 0 && (
+            <button className="ghost compact activity-view-all" type="button" onClick={() => setActivityListOpen(true)}>
+              查看全部活动 ({feature.activities.length})
+            </button>
+          )}
+        </section>
       </section>
+      {activityListOpen && (
+        <ActivityListDialog
+          activities={feature.activities}
+          kind="feature"
+          canDeleteActivity={canDeleteActivity}
+          onClose={() => setActivityListOpen(false)}
+          onDeleteActivity={(activity) => {
+            setActivityListOpen(false);
+            setActivityDeleteTarget(activity as FeatureActivity);
+            setActivityDeleteError('');
+          }}
+        />
+      )}
+      {activityDeleteTarget && (
+        <FeatureActivityDeleteDialog
+          activity={activityDeleteTarget}
+          error={activityDeleteError}
+          submitting={activityDeleteSubmitting}
+          onCancel={() => {
+            if (!activityDeleteSubmitting) {
+              setActivityDeleteTarget(null);
+              setActivityDeleteError('');
+            }
+          }}
+          onConfirm={async () => {
+            setActivityDeleteError('');
+            setActivityDeleteSubmitting(true);
+            try {
+              await api('/features/' + feature.id + '/activities/' + activityDeleteTarget.id, { method: 'DELETE' });
+              setActivityDeleteTarget(null);
+              await load();
+            } catch (actionError) {
+              setActivityDeleteError(readError(actionError));
+            } finally {
+              setActivityDeleteSubmitting(false);
+            }
+          }}
+        />
+      )}
+      {statusDialogOpen && (
+        <FeatureStatusDialog
+          currentStatus={feature.status}
+          error={statusDialogError}
+          submitting={statusDialogSubmitting}
+          onClose={() => {
+            if (!statusDialogSubmitting) {
+              setStatusDialogOpen(false);
+              setStatusDialogError('');
+            }
+          }}
+          onConfirm={async (status) => {
+            setStatusDialogError('');
+            setStatusDialogSubmitting(true);
+            try {
+              await api(`/features/${feature.id}/status`, {
+                method: 'PATCH',
+                body: JSON.stringify({ status })
+              });
+              setStatusDialogOpen(false);
+              await load();
+            } catch (actionError) {
+              setStatusDialogError(readError(actionError));
+            } finally {
+              setStatusDialogSubmitting(false);
+            }
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1636,231 +1800,9 @@ function StatsPage() {
   );
 }
 
-function PersonnelPanel({
-  kind,
-  entityId,
-  owner,
-  relatedUsers,
-  disabled,
-  onUpdated
-}: {
-  kind: 'bug' | 'feature';
-  entityId: string;
-  owner: AssignableUser | null;
-  relatedUsers: AssignableUser[];
-  disabled?: boolean;
-  onUpdated: () => Promise<void>;
-}) {
-  const { user } = useAuth();
-  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
-  const [delegateOwnerId, setDelegateOwnerId] = useState('');
-  const [selectedRelatedIds, setSelectedRelatedIds] = useState<string[]>([]);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const joinPermission = kind === 'bug' ? 'MARK_BUG_FIXED' : 'UPDATE_FEATURE';
-  const isOwner = owner?.id === user?.id;
-  const isRelated = relatedUsers.some((person) => person.id === user?.id);
-  const canJoin = !disabled && hasPermission(user, joinPermission) && !isOwner && !isRelated;
-  const canClaimOwner = !disabled && hasPermission(user, 'BECOME_ITEM_OWNER') && !isOwner;
-  const canDelegateOwner = !disabled && hasPermission(user, 'DELEGATE_ITEM_OWNER');
-  const canDelegateRelated = !disabled && hasPermission(user, 'DELEGATE_ITEM_RELATED');
-  const canRevokeOwner =
-    !disabled &&
-    Boolean(owner) &&
-    (canDelegateOwner || (isOwner && hasPermission(user, 'BECOME_ITEM_OWNER')));
-  const canLeaveRelated = !disabled && isRelated;
-
-  useEffect(() => {
-    if (!canDelegateOwner && !canDelegateRelated) {
-      return;
-    }
-    void api<AssignableUser[]>('/auth/assignable-users').then(setAssignableUsers).catch(() => undefined);
-  }, [canDelegateOwner, canDelegateRelated]);
-
-  async function run(action: () => Promise<unknown>) {
-    setError('');
-    setBusy(true);
-    try {
-      await action();
-      await onUpdated();
-      setSelectedRelatedIds([]);
-      setDelegateOwnerId('');
-    } catch (actionError) {
-      setError(readError(actionError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function toggleRelatedSelection(userId: string) {
-    setSelectedRelatedIds((current) =>
-      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId]
-    );
-  }
-
-  return (
-    <div className="info-block personnel-panel">
-      <strong>负责人与相关人员</strong>
-      <p>负责人：{owner?.displayName ?? '未指定'}</p>
-      <div className="related-user-chips">
-        {relatedUsers.length === 0 && <span className="muted">暂无相关人员</span>}
-        {relatedUsers.map((person) => (
-          <span key={person.id} className="personnel-chip">{person.displayName}</span>
-        ))}
-      </div>
-      {!disabled &&
-        (canJoin ||
-          canClaimOwner ||
-          canDelegateOwner ||
-          canDelegateRelated ||
-          canRevokeOwner ||
-          canLeaveRelated) && (
-        <div className="personnel-actions">
-          {canJoin && (
-            <button
-              className="ghost compact"
-              type="button"
-              disabled={busy}
-              onClick={() => void run(() => (kind === 'bug' ? joinBugPersonnel(entityId) : joinFeaturePersonnel(entityId)))}
-            >
-              <UserCheck size={16} />加入相关人
-            </button>
-          )}
-          {canClaimOwner && (
-            <button
-              className="ghost compact"
-              type="button"
-              disabled={busy}
-              onClick={() => void run(() => (kind === 'bug' ? claimBugOwner(entityId) : claimFeatureOwner(entityId)))}
-            >
-              <Shield size={16} />我来负责
-            </button>
-          )}
-          {canRevokeOwner && (
-            <button
-              className="ghost compact"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(() =>
-                  kind === 'bug'
-                    ? patchBugPersonnel(entityId, { ownerId: null })
-                    : patchFeaturePersonnel(entityId, { ownerId: null })
-                )
-              }
-            >
-              撤销负责人
-            </button>
-          )}
-          {canLeaveRelated && (
-            <button
-              className="ghost compact"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(() =>
-                  kind === 'bug'
-                    ? patchBugPersonnel(entityId, { removeRelatedUserIds: [user!.id] })
-                    : patchFeaturePersonnel(entityId, { removeRelatedUserIds: [user!.id] })
-                )
-              }
-            >
-              退出相关人
-            </button>
-          )}
-          {canDelegateOwner && (
-            <label className="personnel-delegate">
-              委派负责人
-              <div className="personnel-delegate-row">
-                <select value={delegateOwnerId} onChange={(event) => setDelegateOwnerId(event.target.value)}>
-                  <option value="">选择用户</option>
-                  {assignableUsers.map((person) => (
-                    <option key={person.id} value={person.id}>{person.displayName}</option>
-                  ))}
-                </select>
-                <button
-                  className="ghost compact"
-                  type="button"
-                  disabled={busy || !delegateOwnerId}
-                  onClick={() =>
-                    void run(() =>
-                      kind === 'bug'
-                        ? patchBugPersonnel(entityId, { ownerId: delegateOwnerId })
-                        : patchFeaturePersonnel(entityId, { ownerId: delegateOwnerId })
-                    )
-                  }
-                >
-                  确认
-                </button>
-              </div>
-            </label>
-          )}
-          {canDelegateRelated && (
-            <div className="personnel-delegate">
-              <span>添加相关人</span>
-              <div className="related-user-chips">
-                {assignableUsers
-                  .filter((person) => person.id !== owner?.id && !relatedUsers.some((related) => related.id === person.id))
-                  .map((person) => (
-                    <label key={person.id} className="chip-toggle">
-                      <input
-                        type="checkbox"
-                        checked={selectedRelatedIds.includes(person.id)}
-                        onChange={() => toggleRelatedSelection(person.id)}
-                      />
-                      <span>{person.displayName}</span>
-                    </label>
-                  ))}
-              </div>
-              <div className="personnel-delegate-row">
-                <button
-                  className="ghost compact"
-                  type="button"
-                  disabled={busy || selectedRelatedIds.length === 0}
-                  onClick={() =>
-                    void run(() =>
-                      kind === 'bug'
-                        ? patchBugPersonnel(entityId, { addRelatedUserIds: selectedRelatedIds })
-                        : patchFeaturePersonnel(entityId, { addRelatedUserIds: selectedRelatedIds })
-                    )
-                  }
-                >
-                  添加选中
-                </button>
-                {relatedUsers.length > 0 && (
-                  <select
-                    defaultValue=""
-                    onChange={(event) => {
-                      const userId = event.target.value;
-                      if (!userId) return;
-                      void run(() =>
-                        kind === 'bug'
-                          ? patchBugPersonnel(entityId, { removeRelatedUserIds: [userId] })
-                          : patchFeaturePersonnel(entityId, { removeRelatedUserIds: [userId] })
-                      );
-                      event.currentTarget.value = '';
-                    }}
-                  >
-                    <option value="">移除相关人</option>
-                    {relatedUsers.map((person) => (
-                      <option key={person.id} value={person.id}>{person.displayName}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-      {error && <p className="error">{error}</p>}
-    </div>
-  );
-}
-
 function FeatureStatusBadge({ status }: { status: FeatureStatus }) {
   const label = { PLANNED: '规划中', IN_PROGRESS: '进行中', DONE: '已完成' }[status];
-  return <span className={`status-badge feature-${status.toLowerCase()}`}>{label}</span>;
+  return <span className={`status feature-${status.toLowerCase()}`}>{label}</span>;
 }
 
 function AdminPage() {
@@ -1869,9 +1811,11 @@ function AdminPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissionDefinitions, setPermissionDefinitions] = useState<PermissionDefinition[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [systemForm, setSystemForm] = useState({ name: '', description: '', owner: '', versionInfo: '' });
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'systems' | 'roles' | 'users'>('systems');
+  const [createSystemOpen, setCreateSystemOpen] = useState(false);
+  const [createSystemSubmitting, setCreateSystemSubmitting] = useState(false);
+  const [createSystemError, setCreateSystemError] = useState('');
 
   const canManageSystems = hasPermission(user, 'MANAGE_SYSTEMS');
   const canManageRoles = hasPermission(user, 'MANAGE_ROLES');
@@ -1961,23 +1905,28 @@ function AdminPage() {
       <section className="admin-tab-panel" role="tabpanel">
         {activeTab === 'systems' && canManageSystems && (
           <div className="panel">
-          <h2>系统</h2>
-          <form className="stack" onSubmit={(event) => {
-            event.preventDefault();
-            void mutate(() => api('/systems', { method: 'POST', body: JSON.stringify(systemForm) })).then(() => setSystemForm({ name: '', description: '', owner: '', versionInfo: '' }));
-          }}>
-            <input placeholder="系统名称" value={systemForm.name} onChange={(event) => setSystemForm({ ...systemForm, name: event.target.value })} />
-            <input placeholder="负责人" value={systemForm.owner} onChange={(event) => setSystemForm({ ...systemForm, owner: event.target.value })} />
-            <input placeholder="版本信息" value={systemForm.versionInfo} onChange={(event) => setSystemForm({ ...systemForm, versionInfo: event.target.value })} />
-            <textarea placeholder="说明" value={systemForm.description} onChange={(event) => setSystemForm({ ...systemForm, description: event.target.value })} />
-            <button className="primary compact" type="submit"><Plus size={16} />创建系统</button>
-          </form>
+          <div className="panel-heading-row">
+            <h2>系统</h2>
+            <button
+              className="primary compact"
+              type="button"
+              onClick={() => {
+                setCreateSystemOpen(true);
+                setCreateSystemError('');
+              }}
+            >
+              <Plus size={16} />新建系统
+            </button>
+          </div>
           <div className="list">
             {systems.map((system) => (
               <SystemRow
                 key={system.id}
                 system={system}
-                onDelete={() => mutate(() => api(`/systems/${system.id}`, { method: 'DELETE' }))}
+                onDelete={async () => {
+                  await api(`/systems/${system.id}`, { method: 'DELETE' });
+                  await loadAll();
+                }}
               />
             ))}
           </div>
@@ -2006,16 +1955,7 @@ function AdminPage() {
               </thead>
               <tbody>
                 {users.map((item) => (
-                  <UserRow
-                    key={item.id}
-                    user={item}
-                    roles={roles}
-                    onSaveDisplayName={(displayName) => mutate(() => api(`/users/${item.id}`, { method: 'PATCH', body: JSON.stringify({ displayName }) }))}
-                    onRoleChange={(roleId) => mutate(() => api(`/users/${item.id}/role`, { method: 'PATCH', body: JSON.stringify({ roleId }) }))}
-                    onAdminChange={(isAdmin) => mutate(() => api(`/users/${item.id}/admin`, { method: 'PATCH', body: JSON.stringify({ isAdmin }) }))}
-                    onApprove={() => mutate(() => api(`/users/${item.id}/approve`, { method: 'PATCH', body: JSON.stringify({ roleId: item.role?.id }) }))}
-                    onStatusChange={(status) => mutate(() => api(`/users/${item.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }))}
-                  />
+                  <UserRow key={item.id} user={item} roles={roles} onMutate={mutateOrThrow} />
                 ))}
               </tbody>
             </table>
@@ -2023,6 +1963,31 @@ function AdminPage() {
           </div>
         )}
       </section>
+      {createSystemOpen && (
+        <CreateSystemDialog
+          error={createSystemError}
+          submitting={createSystemSubmitting}
+          onClose={() => {
+            if (!createSystemSubmitting) {
+              setCreateSystemOpen(false);
+              setCreateSystemError('');
+            }
+          }}
+          onConfirm={async (payload) => {
+            setCreateSystemError('');
+            setCreateSystemSubmitting(true);
+            try {
+              await api('/systems', { method: 'POST', body: JSON.stringify(payload) });
+              setCreateSystemOpen(false);
+              await loadAll();
+            } catch (actionError) {
+              setCreateSystemError(readError(actionError));
+            } finally {
+              setCreateSystemSubmitting(false);
+            }
+          }}
+        />
+      )}
     </>
   );
 }
@@ -2106,115 +2071,159 @@ function SystemRow({
   onDelete
 }: {
   system: TrackedSystem;
-  onDelete: () => void;
+  onDelete: () => Promise<unknown>;
 }) {
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  async function confirmDelete() {
+    setError('');
+    setSubmitting(true);
+    try {
+      await onDelete();
+      setDeleteOpen(false);
+    } catch (actionError) {
+      setError(readError(actionError));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <div className="system-row">
-      <div className="system-main">
-        <strong>{system.name}</strong>
-        <div className="system-summary">
-          <span>负责人：{system.owner || '未填写'}</span>
-          <span>版本：{system.versionInfo || '未填写'}</span>
+    <>
+      <div className="system-row">
+        <div className="system-main">
+          <strong>{system.name}</strong>
+          <div className="system-summary">
+            <span>负责人：{system.owner || '未填写'}</span>
+            <span>版本：{system.versionInfo || '未填写'}</span>
+          </div>
+          {system.description && <p>{system.description}</p>}
         </div>
-        {system.description && <p>{system.description}</p>}
+        <div className="actions">
+          <Link className="icon-button" to={`/admin/systems/${system.id}/edit`} title="编辑系统"><Pencil size={16} /></Link>
+          <button className="icon-button" type="button" onClick={() => { setDeleteOpen(true); setError(''); }} title="彻底删除系统">
+            <Trash2 size={16} />
+          </button>
+        </div>
       </div>
-      <div className="actions">
-        <Link className="icon-button" to={`/admin/systems/${system.id}/edit`} title="编辑系统"><Pencil size={16} /></Link>
-        <button className="icon-button" onClick={onDelete} title="彻底删除系统"><Trash2 size={16} /></button>
-      </div>
-    </div>
+      {deleteOpen && (
+        <ConfirmDeleteDialog
+          title="删除系统"
+          description="删除后该系统及其关联数据将无法恢复。"
+          targetLabel="目标系统"
+          targetName={system.name}
+          warning="请确认你要彻底删除这个系统。"
+          error={error}
+          submitting={submitting}
+          confirmLabel="确认删除系统"
+          onClose={() => {
+            if (!submitting) {
+              setDeleteOpen(false);
+              setError('');
+            }
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
+      )}
+    </>
   );
 }
 
 function UserRow({
   user,
   roles,
-  onSaveDisplayName,
-  onRoleChange,
-  onAdminChange,
-  onApprove,
-  onStatusChange
+  onMutate
 }: {
   user: User;
   roles: Role[];
-  onSaveDisplayName: (displayName: string) => void;
-  onRoleChange: (roleId: string | null) => void;
-  onAdminChange: (isAdmin: boolean) => void;
-  onApprove: () => void;
-  onStatusChange: (status: User['status']) => void;
+  onMutate: (action: () => Promise<unknown>) => Promise<void>;
 }) {
-  const [displayName, setDisplayName] = useState(user.displayName);
-  useEffect(() => {
-    setDisplayName(user.displayName);
-  }, [user.displayName]);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
-  const normalizedDisplayName = displayName.trim();
-  const canSaveDisplayName = Boolean(normalizedDisplayName && normalizedDisplayName !== user.displayName);
   const initialsSource = (user.displayName || user.username).replace(/\s+/g, '').replace(/^@/, '');
   const initials = initialsSource.slice(0, 2).toUpperCase() || user.username.slice(0, 2).toUpperCase();
 
+  async function run(action: () => Promise<unknown>, closeOnSuccess = false) {
+    setError('');
+    setSubmitting(true);
+    try {
+      await onMutate(action);
+      if (closeOnSuccess) {
+        setManageOpen(false);
+      }
+    } catch (actionError) {
+      setError(readError(actionError));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <tr className="user-row">
-      <td className="user-cell" data-label="用户">
-        <div className="user-summary">
-          <div className="user-avatar" aria-hidden="true">{initials}</div>
-          <div className="user-identity">
-            <div className="inline-edit user-inline-edit">
-              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-              <button
-                className="icon-button user-save-button"
-                disabled={!canSaveDisplayName}
-                onClick={() => onSaveDisplayName(normalizedDisplayName)}
-                title="保存用户"
-              >
-                <Save size={16} />
-              </button>
-            </div>
-            <div className="user-meta-row">
-              <span className="muted user-handle">@{user.username}</span>
-              {user.isAdmin && (
-                <span className="user-chip">
-                  <Shield size={14} />
-                  系统管理员
-                </span>
-              )}
+    <>
+      <tr className="user-row">
+        <td className="user-cell" data-label="用户">
+          <div className="user-summary">
+            <div className="user-avatar" aria-hidden="true">{initials}</div>
+            <div className="user-identity">
+              <strong>{user.displayName}</strong>
+              <div className="user-meta-row">
+                <span className="muted user-handle">@{user.username}</span>
+                {user.isAdmin && (
+                  <span className="user-chip">
+                    <Shield size={14} />
+                    系统管理员
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </td>
-      <td className="user-status-cell" data-label="状态">
-        <UserStateBadge status={user.status} />
-      </td>
-      <td className="user-role-cell" data-label="角色">
-        {user.isAdmin ? (
-          <span className="admin-role-label">
-            <Shield size={14} />
-            系统管理员
-          </span>
-        ) : (
-          <div className="user-role-picker">
-            <span className="user-field-label">当前角色</span>
-            <select value={user.role?.id ?? ''} onChange={(event) => onRoleChange(event.target.value || null)}>
-              <option value="">无角色</option>
-              {roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
-            </select>
-          </div>
-        )}
-      </td>
-      <td className="user-admin-cell" data-label="管理员">
-        <label className="user-admin-toggle">
-          <input type="checkbox" checked={user.isAdmin} onChange={(event) => onAdminChange(event.target.checked)} />
-          <span>{user.isAdmin ? '已启用' : '普通用户'}</span>
-        </label>
-      </td>
-      <td className="user-actions-cell" data-label="操作">
-        <div className="actions user-actions">
-          {user.status === 'PENDING' && <button className="primary compact" onClick={onApprove}><UserCheck size={16} />审批</button>}
-          {user.status !== 'DISABLED' && <button className="ghost compact" onClick={() => onStatusChange('DISABLED')}>禁用</button>}
-          {user.status === 'DISABLED' && <button className="ghost compact" onClick={() => onStatusChange('ACTIVE')}>启用</button>}
-        </div>
-      </td>
-    </tr>
+        </td>
+        <td className="user-status-cell" data-label="状态">
+          <UserStateBadge status={user.status} />
+        </td>
+        <td className="user-role-cell" data-label="角色">
+          {user.isAdmin ? (
+            <span className="admin-role-label">
+              <Shield size={14} />
+              系统管理员
+            </span>
+          ) : (
+            <span>{user.role?.name ?? '无角色'}</span>
+          )}
+        </td>
+        <td className="user-admin-cell" data-label="管理员">
+          <span>{user.isAdmin ? '是' : '否'}</span>
+        </td>
+        <td className="user-actions-cell" data-label="操作">
+          <button className="ghost compact" type="button" onClick={() => { setManageOpen(true); setError(''); }}>
+            管理
+          </button>
+        </td>
+      </tr>
+      {manageOpen && (
+        <UserManageDialog
+          user={user}
+          roles={roles}
+          submitting={submitting}
+          error={error}
+          onClose={() => {
+            if (!submitting) {
+              setManageOpen(false);
+              setError('');
+            }
+          }}
+          onSaveDisplayName={(displayName) => void run(() => api(`/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ displayName }) }), true)}
+          onRoleChange={(roleId) => void run(() => api(`/users/${user.id}/role`, { method: 'PATCH', body: JSON.stringify({ roleId }) }), true)}
+          onAdminChange={(isAdmin) => void run(() => api(`/users/${user.id}/admin`, { method: 'PATCH', body: JSON.stringify({ isAdmin }) }), true)}
+          onApprove={() => void run(() => api(`/users/${user.id}/approve`, { method: 'PATCH', body: JSON.stringify({ roleId: user.role?.id }) }), true)}
+          onStatusChange={(status) => void run(() => api(`/users/${user.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), true)}
+        />
+      )}
+    </>
   );
 }
 
@@ -2260,330 +2269,6 @@ function InfoBlock({ title, value, tone }: { title: string; value: string | null
   );
 }
 
-const MODAL_EXIT_MS = 180;
-
-function useModalClose(onCancel: () => void, submitting: boolean) {
-  const [isClosing, setIsClosing] = useState(false);
-  const closeTimer = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (closeTimer.current) {
-        window.clearTimeout(closeTimer.current);
-      }
-    };
-  }, []);
-
-  function requestClose() {
-    if (submitting || isClosing) {
-      return;
-    }
-    setIsClosing(true);
-    closeTimer.current = window.setTimeout(onCancel, MODAL_EXIT_MS);
-  }
-
-  return { isClosing, requestClose };
-}
-
-function BugStatusDialog({
-  actionLabel,
-  currentStatus,
-  error,
-  nextStatus,
-  submitting,
-  onCancel,
-  onConfirm
-}: {
-  actionLabel: string;
-  currentStatus: BugStatus;
-  error?: string;
-  nextStatus: BugStatus;
-  submitting: boolean;
-  onCancel: () => void;
-  onConfirm: (note: string) => void;
-}) {
-  const [note, setNote] = useState('');
-  const { isClosing, requestClose } = useModalClose(onCancel, submitting);
-  const normalizedNote = note.trim();
-  const canSubmit = Boolean(normalizedNote);
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!canSubmit || submitting) {
-      return;
-    }
-    onConfirm(normalizedNote);
-  }
-
-  return (
-    <div className={`bug-delete-modal-backdrop${isClosing ? ' closing' : ''}`} role="presentation">
-      <section className="bug-delete-modal action-modal" role="dialog" aria-modal="true" aria-labelledby="bug-status-modal-title">
-        <header className="bug-delete-modal-header">
-          <div>
-            <h2 id="bug-status-modal-title">状态操作</h2>
-            <p>填写操作说明后，将当前 bug 从{statusLabel(currentStatus)}变更为{statusLabel(nextStatus)}。</p>
-          </div>
-          <button className="icon-button" type="button" onClick={requestClose} disabled={submitting} title="关闭窗口">
-            <X size={20} />
-          </button>
-        </header>
-        <form className="bug-delete-modal-body" onSubmit={submit}>
-          <div className="delete-target action-target">
-            <span>状态变更</span>
-            <strong>{statusLabel(currentStatus)} {'->'} {statusLabel(nextStatus)}</strong>
-          </div>
-          <label>
-            操作说明
-            <textarea
-              autoFocus
-              placeholder={nextStatus === 'FIXED' ? '填写修复说明、影响范围或验证方式' : '填写重新打开的原因'}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-            />
-          </label>
-          {error && <p className="error">{error}</p>}
-          <footer className="bug-delete-modal-actions">
-            <button className="ghost" type="button" onClick={requestClose} disabled={submitting}>取消</button>
-            <button className="primary" type="submit" disabled={!canSubmit || submitting}>
-              <CheckCircle2 size={16} />
-              {submitting ? '处理中...' : actionLabel}
-            </button>
-          </footer>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-function BugDeleteDialog({
-  error,
-  mode,
-  submitting,
-  title,
-  onCancel,
-  onConfirm
-}: {
-  error?: string;
-  mode: 'soft' | 'permanent';
-  submitting: boolean;
-  title: string;
-  onCancel: () => void;
-  onConfirm: (reason: string) => void;
-}) {
-  const [reason, setReason] = useState('');
-  const { isClosing, requestClose } = useModalClose(onCancel, submitting);
-  const isPermanent = mode === 'permanent';
-  const normalizedReason = reason.trim();
-  const canSubmit = isPermanent || Boolean(normalizedReason);
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!canSubmit || submitting) {
-      return;
-    }
-    onConfirm(normalizedReason);
-  }
-
-  return (
-    <div className={`bug-delete-modal-backdrop${isClosing ? ' closing' : ''}`} role="presentation">
-      <section className="bug-delete-modal" role="dialog" aria-modal="true" aria-labelledby="bug-delete-modal-title">
-        <header className="bug-delete-modal-header">
-          <div>
-            <h2 id="bug-delete-modal-title">{isPermanent ? '彻底删除 bug' : '移入回收站'}</h2>
-            <p>{isPermanent ? '此操作会永久删除数据，删除后无法恢复。' : '删除后 bug 会进入回收站，管理员仍可彻底删除。'}</p>
-          </div>
-          <button className="icon-button" type="button" onClick={requestClose} disabled={submitting} title="关闭窗口">
-            <X size={20} />
-          </button>
-        </header>
-        <form className="bug-delete-modal-body" onSubmit={submit}>
-          <div className="delete-target">
-            <span>目标 bug</span>
-            <strong>{title}</strong>
-          </div>
-          {isPermanent ? (
-            <p className="delete-warning">请确认你要彻底删除这条 bug。该操作不会进入回收站，也不能撤销。</p>
-          ) : (
-            <label>
-              删除原因
-              <textarea
-                autoFocus
-                placeholder="例如重复登记、误报或已合并到其他 bug"
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </label>
-          )}
-          {error && <p className="error">{error}</p>}
-          <footer className="bug-delete-modal-actions">
-            <button className="ghost" type="button" onClick={requestClose} disabled={submitting}>取消</button>
-            <button className="ghost danger" type="submit" disabled={!canSubmit || submitting}>
-              <Trash2 size={16} />
-              {submitting ? '处理中...' : isPermanent ? '确认彻底删除' : '移入回收站'}
-            </button>
-          </footer>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-function BugActivityDeleteDialog({
-  activity,
-  error,
-  submitting,
-  onCancel,
-  onConfirm
-}: {
-  activity: BugActivity;
-  error?: string;
-  submitting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const { isClosing, requestClose } = useModalClose(onCancel, submitting);
-
-  return (
-    <div className={`bug-delete-modal-backdrop${isClosing ? ' closing' : ''}`} role="presentation">
-      <section className="bug-delete-modal" role="dialog" aria-modal="true" aria-labelledby="activity-delete-modal-title">
-        <header className="bug-delete-modal-header">
-          <div>
-            <h2 id="activity-delete-modal-title">删除活动记录</h2>
-            <p>删除后这条操作历史将从当前 bug 的活动记录中移除。</p>
-          </div>
-          <button className="icon-button" type="button" onClick={requestClose} disabled={submitting} title="关闭窗口">
-            <X size={20} />
-          </button>
-        </header>
-        <div className="bug-delete-modal-body">
-          <div className="delete-target">
-            <span>目标记录</span>
-            <strong>{activityTitle(activity)}</strong>
-            <span>
-              {activity.actor.displayName}
-              {' · '}
-              {formatDateTime(activity.createdAt)}
-            </span>
-          </div>
-          {activity.note && <p className="delete-warning">{activity.note}</p>}
-          {error && <p className="error">{error}</p>}
-          <footer className="bug-delete-modal-actions">
-            <button className="ghost" type="button" onClick={requestClose} disabled={submitting}>取消</button>
-            <button className="ghost danger" type="button" onClick={onConfirm} disabled={submitting}>
-              <Trash2 size={16} />
-              {submitting ? '处理中...' : '确认删除记录'}
-            </button>
-          </footer>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function activityTitle(activity: BugActivity) {
-  return {
-    CREATED: '创建 bug',
-    UPDATED: '编辑 bug',
-    STATUS_CHANGED: '变更状态',
-    DELETED: '移入回收站',
-    SCREENSHOT_ADDED: '上传截图',
-    SCREENSHOT_REMOVED: '删除截图',
-    RUNTIME_INFO_ADDED: '添加运行信息',
-    RUNTIME_INFO_UPDATED: '更新运行信息',
-    RUNTIME_INFO_REMOVED: '删除运行信息',
-    RETEST_RECORDED: '提交复测',
-    OWNER_CLAIMED: '认领负责人',
-    OWNER_DELEGATED: '委派负责人',
-    OWNER_REVOKED: '撤销负责人',
-    RELATED_JOINED: '加入相关人',
-    RELATED_ADDED: '添加相关人',
-    RELATED_REMOVED: '移除相关人'
-  }[activity.type];
-}
-
-function fieldLabel(field: string) {
-  return {
-    systemId: '所属系统',
-    title: '标题',
-    description: '描述',
-    severity: '严重程度',
-    environment: '运行环境',
-    steps: '复现步骤',
-    expected: '期望结果',
-    actual: '实际结果',
-    logText: '日志内容'
-  }[field] ?? field;
-}
-
-function statusLabel(status: BugStatus) {
-  return status === 'FIXED' ? '已修复' : '未修复';
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(new Date(value));
-}
-
-function formatChangeValue(value: string | null) {
-  return value && value.length > 0 ? value : '空';
-}
-
-function describeActivityContext(activity: BugActivity | null) {
-  if (!activity?.context) {
-    return '';
-  }
-
-  const get = (key: string) => {
-    const value = activity.context?.[key];
-    return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-  };
-
-  switch (activity.type) {
-    case 'SCREENSHOT_ADDED':
-    case 'SCREENSHOT_REMOVED':
-      return ['文件：' + get('originalName'), get('caption') ? '说明：' + get('caption') : '']
-        .filter(Boolean)
-        .join('，');
-    case 'RUNTIME_INFO_ADDED':
-    case 'RUNTIME_INFO_UPDATED':
-    case 'RUNTIME_INFO_REMOVED':
-      return ['标题：' + get('title'), get('environment') ? '环境：' + get('environment') : '']
-        .filter(Boolean)
-        .join('，');
-    case 'RETEST_RECORDED':
-      return [
-        '结果：' + (get('result') === 'NOT_APPEARED' ? '未出现' : '确认出现'),
-        get('mode') === 'updated' ? '覆盖了之前的复测结果' : '新增一条复测结果',
-        get('note') ? '备注：' + get('note') : ''
-      ]
-        .filter(Boolean)
-        .join('，');
-    case 'DELETED':
-      return get('deletedBy') ? `执行人：${get('deletedBy')}` : '';
-    case 'OWNER_CLAIMED':
-    case 'OWNER_DELEGATED':
-    case 'OWNER_REVOKED': {
-      const previous = get('previousOwnerName');
-      const next = get('newOwnerName');
-      if (activity.type === 'OWNER_REVOKED') {
-        return previous ? `原负责人：${previous}` : '';
-      }
-      if (activity.type === 'OWNER_CLAIMED') {
-        return next ? `负责人：${next}` : '';
-      }
-      return [previous ? `原负责人：${previous}` : '', next ? `新负责人：${next}` : ''].filter(Boolean).join('，');
-    }
-    case 'RELATED_JOINED':
-    case 'RELATED_ADDED':
-    case 'RELATED_REMOVED':
-      return get('userNames') ? `相关人员：${get('userNames')}` : '';
-    default:
-      return '';
-  }
-}
-
 function toBugDraft(bug: BugItem): BugDraft {
   return {
     systemId: bug.system.id,
@@ -2604,16 +2289,6 @@ function toSystemDraft(system: TrackedSystem): SystemDraft {
     owner: system.owner ?? '',
     versionInfo: system.versionInfo ?? ''
   };
-}
-
-function updateRuntimeDraft(
-  index: number,
-  key: 'title' | 'environment' | 'logText',
-  value: string,
-  drafts: Array<{ title: string; environment: string; logText: string }>,
-  setDrafts: (drafts: Array<{ title: string; environment: string; logText: string }>) => void
-) {
-  setDrafts(drafts.map((draft, itemIndex) => (itemIndex === index ? { ...draft, [key]: value } : draft)));
 }
 
 function severityLabel(value: string) {

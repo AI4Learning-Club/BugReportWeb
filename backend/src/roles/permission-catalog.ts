@@ -103,6 +103,16 @@ export const PERMISSION_CATALOG: PermissionCatalogItem[] = [
     apis: ['POST /features/:id/delete', 'DELETE /features/:id/permanent']
   },
   {
+    code: Permission.DELETE_FEATURE_ACTIVITY,
+    zhName: '删除功能活动记录',
+    enName: 'Delete Feature Activity',
+    group: '功能管理',
+    summary: '允许删除功能详情页中的活动记录。',
+    description: '可在功能详情页移除指定活动记录。默认不分配给普通角色，系统管理员可直接拥有该权限。',
+    surfaces: ['功能详情页 / 活动记录'],
+    apis: ['DELETE /features/:id/activities/:activityId']
+  },
+  {
     code: Permission.VIEW_STATS,
     zhName: '查看 KPI 统计',
     enName: 'View KPI Stats',

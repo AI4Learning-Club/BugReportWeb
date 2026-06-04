@@ -354,6 +354,7 @@ pre {
 .content > .panel-form,
 .content > .editor-shell,
 .content > .detail-grid,
+.content > .bug-detail-layout,
 .content > .admin-tab-panel {
   min-height: 0;
   overflow: visible;
@@ -364,8 +365,8 @@ pre {
   overflow-y: visible;
 }
 
-.app-shell:has(.permission-modal-backdrop) .content,
-.app-shell:has(.bug-delete-modal-backdrop) .content {
+body:has(.permission-modal-backdrop) .app-shell .content,
+body:has(.bug-delete-modal-backdrop) .app-shell .content {
   position: relative;
   z-index: 100;
 }
@@ -737,6 +738,21 @@ tbody tr:hover td {
   background: #dff7eb;
 }
 
+.status.feature-planned {
+  color: #245dff;
+  background: #eef3ff;
+}
+
+.status.feature-in_progress {
+  color: #b76a00;
+  background: #fff6e8;
+}
+
+.status.feature-done {
+  color: #1f7a3f;
+  background: #edf9f0;
+}
+
 .row-link,
 .text-link {
   color: #176b58;
@@ -847,6 +863,10 @@ tbody tr:hover td {
 .bug-summary-meta {
   color: #243342;
   font-weight: 700;
+}
+
+.bug-summary-meta .status {
+  min-height: 30px;
 }
 
 .bug-summary-meta span:not(.status) {
@@ -1146,6 +1166,78 @@ tbody tr:hover td {
 
 .bug-activity-panel .activity-change-row {
   padding: 8px 10px;
+}
+
+.bug-activity-panel .activity-list-summary {
+  max-height: min(420px, 42vh);
+  overflow: auto;
+}
+
+.bug-activity-panel .activity-view-all {
+  margin-top: 12px;
+  width: 100%;
+}
+
+.activity-list-modal-body .activity-item {
+  padding: 12px 0;
+  border-bottom: 1px solid #edf2f6;
+}
+
+.activity-list-modal-body .activity-item:last-child {
+  border-bottom: 0;
+}
+
+.personnel-manage-body,
+.user-manage-body {
+  gap: 12px;
+}
+
+.personnel-manage-section {
+  display: grid;
+  gap: 8px;
+}
+
+.personnel-status-board {
+  display: grid;
+  gap: 10px;
+}
+
+.personnel-status-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #e1e7ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.personnel-status-label {
+  color: #718191;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.personnel-status-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.personnel-status-empty {
+  color: #718191;
+  font-size: 14px;
+}
+
+.user-manage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #edf2f6;
 }
 
 .activity-item header {
@@ -1697,20 +1789,31 @@ tbody tr:hover td {
   margin: 6px 0 0;
 }
 
-.bug-delete-modal-backdrop {
+.bug-delete-modal-backdrop,
+.permission-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 1000;
   display: grid;
   place-items: center;
-  padding: 24px;
   background: rgba(15, 23, 42, 0.44);
   backdrop-filter: blur(3px);
   animation: modal-backdrop-enter 180ms var(--ease-out) both;
   will-change: opacity;
 }
 
-.bug-delete-modal-backdrop.closing {
+.bug-delete-modal-backdrop {
+  padding: 24px;
+}
+
+.permission-modal-backdrop {
+  padding: 28px;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(4px);
+}
+
+.bug-delete-modal-backdrop.closing,
+.permission-modal-backdrop.closing {
   pointer-events: none;
   animation: modal-backdrop-exit 180ms var(--ease-out) both;
 }
@@ -1718,7 +1821,9 @@ tbody tr:hover td {
 .bug-delete-modal {
   width: min(520px, 100%);
   max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid #f0d7db;
   border-radius: 8px;
   background: #fff;
@@ -1728,7 +1833,8 @@ tbody tr:hover td {
   will-change: opacity, transform;
 }
 
-.bug-delete-modal-backdrop.closing .bug-delete-modal {
+.bug-delete-modal-backdrop.closing .bug-delete-modal,
+.permission-modal-backdrop.closing .permission-modal {
   animation: modal-window-exit 180ms var(--ease-out) both;
 }
 
@@ -1741,6 +1847,7 @@ tbody tr:hover td {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: start;
+  flex: 0 0 auto;
   padding: 20px 22px 16px;
   border-bottom: 1px solid #f2e2e5;
   background: #fff8f8;
@@ -1768,6 +1875,10 @@ tbody tr:hover td {
 .bug-delete-modal-body {
   display: grid;
   gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
   padding: 18px 22px 22px;
 }
 
@@ -2038,17 +2149,6 @@ tbody tr:hover td {
   grid-template-columns: repeat(auto-fit, minmax(220px, max-content));
 }
 
-.permission-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: 28px;
-  background: rgba(15, 23, 42, 0.38);
-  backdrop-filter: blur(4px);
-}
-
 .permission-modal {
   --permission-modal-side-gap: 32px;
 
@@ -2060,6 +2160,9 @@ tbody tr:hover td {
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22);
+  transform-origin: center;
+  animation: modal-window-enter 220ms var(--ease-smooth) both;
+  will-change: opacity, transform;
 }
 
 .permission-modal-scroll {
@@ -2076,6 +2179,89 @@ tbody tr:hover td {
 
 .permission-modal-header h2 {
   margin: 0;
+}
+
+/* Compact form dialogs (PersonnelManage, UserManage, ActivityList, etc.) */
+.permission-modal.dialog-panel-modal {
+  --permission-modal-side-gap: 20px;
+
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: calc(var(--app-viewport-height) - 56px);
+  height: auto;
+}
+
+.permission-modal.dialog-panel-modal .permission-modal-header {
+  align-items: start;
+  padding: 16px var(--permission-modal-side-gap) 12px;
+}
+
+.permission-modal.dialog-panel-modal .permission-modal-header h2 {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.permission-modal.dialog-panel-modal .permission-modal-header p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.permission-modal.dialog-panel-modal.activity-list-modal {
+  width: min(720px, 100%);
+}
+
+.permission-modal.dialog-panel-modal.permission-detail-modal {
+  width: min(640px, 100%);
+}
+
+.permission-modal.dialog-panel-modal.personnel-manage-modal {
+  min-height: min(520px, calc(var(--app-viewport-height) - 56px));
+}
+
+.permission-modal.personnel-manage-modal .permission-modal-scroll {
+  display: flex;
+  flex-direction: column;
+}
+
+.permission-modal.personnel-manage-modal .personnel-manage-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.personnel-manage-modal .multi-select-menu {
+  max-height: min(320px, calc(var(--app-viewport-height) * 0.42));
+}
+
+.permission-modal.dialog-panel-modal .permission-modal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  padding: 12px var(--permission-modal-side-gap) 4px;
+}
+
+.permission-modal.dialog-panel-modal .permission-modal-footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 10px var(--permission-modal-side-gap) 14px;
+  border-top: 1px solid #e6edf3;
+}
+
+.dialog-panel-modal .personnel-manage-body label,
+.dialog-panel-modal .user-manage-body label {
+  display: grid;
+  gap: 8px;
+}
+
+.dialog-panel-modal .personnel-delegate-row select {
+  flex: 1 1 180px;
+  min-width: 0;
 }
 
 .grant-modal {
@@ -2169,6 +2355,7 @@ tbody tr:hover td {
 .grant-list-wrap {
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .grant-list-table {
@@ -2295,7 +2482,11 @@ tbody tr:hover td {
 
 .personnel-panel {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+}
+
+.personnel-panel .personnel-status-board {
+  margin-top: 2px;
 }
 
 .personnel-actions {
@@ -2319,48 +2510,135 @@ tbody tr:hover td {
 .personnel-chip {
   display: inline-flex;
   align-items: center;
-  padding: 6px 10px;
-  border-radius: 999px;
+  padding: 5px 10px;
+  border-radius: 6px;
   border: 1px solid #dfe7ee;
   background: #fff;
   font-size: 13px;
+  line-height: 1.3;
+}
+
+.personnel-chip-owner {
+  border-color: #c5dfd7;
+  background: #eef8f4;
+  color: #145c4a;
+  font-weight: 600;
 }
 
 .related-user-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 0;
 }
 
-.chip-toggle {
-  display: inline-flex;
+.multi-select-dropdown {
+  position: relative;
+}
+
+.multi-select-trigger {
+  width: 100%;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid #dfe7ee;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #cbd5df;
+  border-radius: 6px;
+  padding: 10px 12px;
   background: #fff;
-  font-size: 13px;
+  color: #17212b;
+  text-align: left;
+  transition:
+    background-color 180ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    box-shadow 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
 }
 
-.chip-toggle input {
+.multi-select-trigger:focus-visible {
+  border-color: #176b58;
+  box-shadow: 0 0 0 3px rgba(23, 107, 88, 0.14);
+  outline: 0;
+  transform: translateY(-1px);
+}
+
+.multi-select-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.multi-select-placeholder {
+  color: #718191;
+}
+
+.multi-select-chevron {
+  flex-shrink: 0;
+  color: #718191;
+  transition: transform 180ms var(--ease-out);
+}
+
+.multi-select-chevron.open {
+  transform: rotate(180deg);
+}
+
+.multi-select-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid #cbd5df;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(23, 33, 43, 0.12);
+  animation: fade-scale 220ms var(--ease-smooth) both;
+  transform-origin: top center;
+}
+
+.multi-select-menu li {
   margin: 0;
 }
 
-.status-badge.feature-planned {
-  background: #eef3ff;
-  color: #245dff;
+.multi-select-option {
+  width: 100%;
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #17212b;
+  font-size: 14px;
+  text-align: left;
+  transition:
+    background-color 180ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    color 180ms var(--ease-out);
 }
 
-.status-badge.feature-in_progress {
-  background: #fff6e8;
-  color: #b76a00;
+.multi-select-option:hover:not(:disabled) {
+  background: #f4f8fb;
 }
 
-.status-badge.feature-done {
-  background: #edf9f0;
-  color: #1f7a3f;
+.multi-select-option.is-selected {
+  color: #fff;
+  background: #176b58;
+  border-color: #176b58;
+}
+
+.multi-select-option.is-selected:hover:not(:disabled) {
+  background: #125746;
+}
+
+.multi-select-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .inline-check {

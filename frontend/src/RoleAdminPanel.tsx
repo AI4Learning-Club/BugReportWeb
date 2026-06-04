@@ -1,11 +1,12 @@
-import { Download, Plus, Save, Search, Shield, Trash2, Upload, X } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Download, Plus, Save, Search, Trash2, Upload, X } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   Permission,
   PermissionDefinition,
   Role,
   api
 } from './api';
+import { ActionModal, FormModal, useModalClose } from './ModalShell';
 
 type RoleAdminPanelProps = {
   permissions: PermissionDefinition[];
@@ -121,6 +122,16 @@ const PERMISSION_UI_META: Record<Permission, Omit<PermissionView, keyof Permissi
     requiresApproval: true,
     dataScope: '当前用户可删除的功能'
   },
+  DELETE_FEATURE_ACTIVITY: {
+    scope: 'user',
+    scopeLabel: '用户身份权限',
+    scopeToken: 'user_access_token',
+    module: '功能管理',
+    category: '活动记录',
+    permissionType: '管理',
+    requiresApproval: true,
+    dataScope: '当前角色可访问的功能活动记录'
+  },
   VIEW_STATS: {
     scope: 'tenant',
     scopeLabel: '应用身份权限',
@@ -197,6 +208,9 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [createName, setCreateName] = useState('');
   const [renameDraft, setRenameDraft] = useState('');
+  const [createRoleOpen, setCreateRoleOpen] = useState(false);
+  const [renameRoleOpen, setRenameRoleOpen] = useState(false);
+  const [detailPermissionCode, setDetailPermissionCode] = useState<Permission | ''>('');
   const [search, setSearch] = useState('');
   const [searchField, setSearchField] = useState<SearchField>('zhName');
   const [moduleFilter, setModuleFilter] = useState('all');
@@ -211,12 +225,20 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
   const [grantSearch, setGrantSearch] = useState('');
   const [grantSearchField, setGrantSearchField] = useState<SearchField>('zhName');
   const [draftPermissions, setDraftPermissions] = useState<Permission[]>([]);
-  const [expandedRelated, setExpandedRelated] = useState<string[]>([]);
   const [focusedPermissionCode, setFocusedPermissionCode] = useState<Permission | ''>('');
   const [localError, setLocalError] = useState('');
   const [roleDeleteOpen, setRoleDeleteOpen] = useState(false);
   const [roleDeleteSubmitting, setRoleDeleteSubmitting] = useState(false);
   const [roleDeleteError, setRoleDeleteError] = useState('');
+
+  const grantModalClose = useModalClose(() => {
+    setGrantOpen(false);
+    setFocusedPermissionCode('');
+  }, false);
+
+  const jsonModalClose = useModalClose(() => {
+    setJsonOpen(false);
+  }, false);
 
   useEffect(() => {
     if (!roles.length) {
@@ -299,7 +321,6 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
     return ['全部', ...new Set(scopedPermissions.map((permission) => permission.category))];
   }, [grantScope, permissionViews]);
 
-  const renameChanged = Boolean(selectedRole && renameDraft.trim() && renameDraft.trim() !== selectedRole.name);
   const selectedRolePermissionCount = selectedRole?.permissionCount ?? selectedRole?.permissions.length ?? 0;
   const selectedRoleUserCount = selectedRole?.userCount ?? 0;
 
@@ -309,9 +330,9 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
     }
   }, [grantCategories, grantCategory]);
 
-  async function createRole() {
-    const name = createName.trim();
-    if (!name) {
+  async function createRole(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) {
       setLocalError('角色名称不能为空');
       return;
     }
@@ -320,19 +341,20 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
       await onMutate(() =>
         api('/roles', {
           method: 'POST',
-          body: JSON.stringify({ name, permissions: [] })
+          body: JSON.stringify({ name: trimmed, permissions: [] })
         })
       );
       setCreateName('');
+      setCreateRoleOpen(false);
     } catch {}
   }
 
-  async function saveRoleName() {
+  async function saveRoleName(name: string) {
     if (!selectedRole) {
       return;
     }
-    const name = renameDraft.trim();
-    if (!name) {
+    const trimmed = name.trim();
+    if (!trimmed) {
       setLocalError('角色名称不能为空');
       return;
     }
@@ -341,9 +363,10 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
       await onMutate(() =>
         api(`/roles/${selectedRole.id}`, {
           method: 'PATCH',
-          body: JSON.stringify({ name })
+          body: JSON.stringify({ name: trimmed })
         })
       );
+      setRenameRoleOpen(false);
     } catch {}
   }
 
@@ -389,8 +412,7 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
   }
 
   function closeGrantModal() {
-    setGrantOpen(false);
-    setFocusedPermissionCode('');
+    grantModalClose.requestClose();
   }
 
   function openJsonModal(tab: JsonModalTab) {
@@ -404,7 +426,7 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
   }
 
   function closeJsonModal() {
-    setJsonOpen(false);
+    jsonModalClose.requestClose();
   }
 
   async function togglePermission(code: Permission, enabled: boolean) {
@@ -522,19 +544,16 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
             <span className="muted">{selectedRoleUserCount} 个用户 · {selectedRolePermissionCount} 项权限</span>
           </div>
           <div className="permission-role-actions">
-            <input
-              placeholder="重命名当前角色"
-              value={renameDraft}
-              onChange={(event) => setRenameDraft(event.target.value)}
-            />
             <button
               className="ghost compact"
               type="button"
-              disabled={!renameChanged}
-              onClick={() => void saveRoleName()}
+              disabled={!selectedRole}
+              onClick={() => {
+                setRenameDraft(selectedRole?.name ?? '');
+                setRenameRoleOpen(true);
+              }}
             >
-              <Save size={16} />
-              保存
+              重命名
             </button>
             <button className="ghost compact danger" type="button" disabled={!selectedRole} onClick={() => void removeRole()}>
               <Trash2 size={16} />
@@ -544,12 +563,7 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
         </div>
 
         <div className="permission-role-create">
-          <input
-            placeholder="新增角色名称"
-            value={createName}
-            onChange={(event) => setCreateName(event.target.value)}
-          />
-          <button className="primary compact" type="button" onClick={() => void createRole()}>
+          <button className="primary compact" type="button" onClick={() => { setCreateName(''); setCreateRoleOpen(true); }}>
             <Plus size={16} />
             创建角色
           </button>
@@ -612,84 +626,58 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
             <tbody>
               {tablePermissions.map((permission) => {
                 const enabled = selectedPermissionSet.has(permission.code);
-                const expanded = expandedRelated.includes(permission.code);
-                const relatedPreview = expanded ? permission.relatedEntries : permission.relatedEntries.slice(0, 2);
                 return (
-                  <Fragment key={permission.code}>
-                    <tr>
-                      <td data-label="权限名称">
-                        <div className="permission-name-cell">
-                          <strong>{permission.zhName}</strong>
-                          <span>{permission.code}</span>
-                        </div>
-                      </td>
-                      <td data-label="权限类型">
-                        <div className="permission-type-cell">
-                          <strong>{permission.scopeLabel}</strong>
-                          <span>{permission.scopeToken}</span>
-                        </div>
-                      </td>
-                      <td data-label="权限状态">
-                        <span className={`permission-status-chip ${enabled ? 'enabled' : 'disabled'}`}>
-                          {enabled ? '已开通' : '未开通'}
-                        </span>
-                      </td>
-                      <td data-label="可访问的数据范围">
-                        <div className="permission-scope-cell">
-                          <span>{permission.dataScope}</span>
-                          <button className="text-link-button" type="button" onClick={() => openGrantModal(permission.code)}>
-                            配置
-                          </button>
-                        </div>
-                      </td>
-                      <td data-label="操作">
-                        <div className="permission-actions-cell">
-                          <button
-                            className="text-link-button"
-                            type="button"
-                            onClick={() =>
-                              setExpandedRelated((current) =>
-                                current.includes(permission.code)
-                                  ? current.filter((item) => item !== permission.code)
-                                  : [...current, permission.code]
-                              )
+                  <tr key={permission.code}>
+                    <td data-label="权限名称">
+                      <div className="permission-name-cell">
+                        <strong>{permission.zhName}</strong>
+                        <span>{permission.code}</span>
+                      </div>
+                    </td>
+                    <td data-label="权限类型">
+                      <div className="permission-type-cell">
+                        <strong>{permission.scopeLabel}</strong>
+                        <span>{permission.scopeToken}</span>
+                      </div>
+                    </td>
+                    <td data-label="权限状态">
+                      <span className={`permission-status-chip ${enabled ? 'enabled' : 'disabled'}`}>
+                        {enabled ? '已开通' : '未开通'}
+                      </span>
+                    </td>
+                    <td data-label="可访问的数据范围">
+                      <div className="permission-scope-cell">
+                        <span>{permission.dataScope}</span>
+                        <button className="text-link-button" type="button" onClick={() => openGrantModal(permission.code)}>
+                          配置
+                        </button>
+                      </div>
+                    </td>
+                    <td data-label="操作">
+                      <div className="permission-actions-cell">
+                        <button
+                          className="text-link-button"
+                          type="button"
+                          onClick={() => setDetailPermissionCode(permission.code)}
+                        >
+                          详情
+                        </button>
+                        <button
+                          className="text-link-button"
+                          type="button"
+                          onClick={() => {
+                            if (enabled) {
+                              void togglePermission(permission.code, false);
+                            } else {
+                              openGrantModal(permission.code);
                             }
-                          >
-                            相关 API/事件
-                          </button>
-                          <button
-                            className="text-link-button"
-                            type="button"
-                            onClick={() => {
-                              if (enabled) {
-                                void togglePermission(permission.code, false);
-                              } else {
-                                openGrantModal(permission.code);
-                              }
-                            }}
-                          >
-                            {enabled ? '关闭' : '开通'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded && (
-                      <tr className="permission-related-row">
-                        <td colSpan={5}>
-                          <div className="permission-related-panel">
-                            <p>{permission.description}</p>
-                            <div className="permission-related-links">
-                              {relatedPreview.map((entry, index) => (
-                                <span key={permission.code + '-' + entry.kind + '-' + entry.label + '-' + index}>
-                                  [{entry.kind}] {entry.label}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                          }}
+                        >
+                          {enabled ? '关闭' : '开通'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 );
               })}
               {tablePermissions.length === 0 && (
@@ -702,8 +690,12 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
         </div>
       </section>
 
-      {grantOpen && (
-        <div className="permission-modal-backdrop" role="presentation" onClick={closeGrantModal}>
+      {(grantOpen || grantModalClose.isClosing) && (
+        <div
+          className={`permission-modal-backdrop${grantModalClose.isClosing ? ' closing' : ''}`}
+          role="presentation"
+          onClick={closeGrantModal}
+        >
           <section
             className="permission-modal grant-modal"
             role="dialog"
@@ -835,8 +827,12 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
         </div>
       )}
 
-      {jsonOpen && (
-        <div className="permission-modal-backdrop" role="presentation" onClick={closeJsonModal}>
+      {(jsonOpen || jsonModalClose.isClosing) && (
+        <div
+          className={`permission-modal-backdrop${jsonModalClose.isClosing ? ' closing' : ''}`}
+          role="presentation"
+          onClick={closeJsonModal}
+        >
           <section
             className="permission-modal json-modal"
             role="dialog"
@@ -915,15 +911,22 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
         </div>
       )}
       {roleDeleteOpen && selectedRole && (
-        <div className="bug-delete-modal-backdrop" role="presentation">
-          <section className="bug-delete-modal" role="dialog" aria-modal="true" aria-labelledby="role-delete-modal-title">
-            <header className="bug-delete-modal-header">
-              <div>
-                <h2 id="role-delete-modal-title">删除角色</h2>
-                <p>删除后该角色将不可继续分配给用户，请确认没有仍需保留的配置。</p>
-              </div>
+        <ActionModal
+          title="删除角色"
+          description="删除后该角色将不可继续分配给用户，请确认没有仍需保留的配置。"
+          titleId="role-delete-modal-title"
+          submitting={roleDeleteSubmitting}
+          onClose={() => {
+            if (!roleDeleteSubmitting) {
+              setRoleDeleteOpen(false);
+              setRoleDeleteError('');
+            }
+          }}
+          actionModal={false}
+          footer={(
+            <>
               <button
-                className="icon-button"
+                className="ghost"
                 type="button"
                 disabled={roleDeleteSubmitting}
                 onClick={() => {
@@ -932,42 +935,161 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
                     setRoleDeleteError('');
                   }
                 }}
-                title="关闭窗口"
               >
-                <X size={20} />
+                取消
               </button>
-            </header>
-            <div className="bug-delete-modal-body">
-              <div className="delete-target">
-                <span>目标角色</span>
-                <strong>{selectedRole.name}</strong>
-              </div>
-              <p className="delete-warning">请确认你要删除这个角色。此操作不会删除用户，但会影响角色配置。</p>
-              {roleDeleteError && <p className="error">{roleDeleteError}</p>}
-              <footer className="bug-delete-modal-actions">
-                <button
-                  className="ghost"
-                  type="button"
-                  disabled={roleDeleteSubmitting}
-                  onClick={() => {
-                    if (!roleDeleteSubmitting) {
-                      setRoleDeleteOpen(false);
-                      setRoleDeleteError('');
-                    }
-                  }}
-                >
-                  取消
-                </button>
-                <button className="ghost danger" type="button" disabled={roleDeleteSubmitting} onClick={() => void confirmRemoveRole()}>
-                  <Trash2 size={16} />
-                  {roleDeleteSubmitting ? '处理中...' : '确认删除角色'}
-                </button>
-              </footer>
-            </div>
-          </section>
-        </div>
+              <button className="ghost danger" type="button" disabled={roleDeleteSubmitting} onClick={() => void confirmRemoveRole()}>
+                <Trash2 size={16} />
+                {roleDeleteSubmitting ? '处理中...' : '确认删除角色'}
+              </button>
+            </>
+          )}
+        >
+          <div className="delete-target">
+            <span>目标角色</span>
+            <strong>{selectedRole.name}</strong>
+          </div>
+          <p className="delete-warning">请确认你要删除这个角色。此操作不会删除用户，但会影响角色配置。</p>
+          {roleDeleteError && <p className="error">{roleDeleteError}</p>}
+        </ActionModal>
+      )}
+      {createRoleOpen && (
+        <CreateRoleDialog
+          value={createName}
+          onChange={setCreateName}
+          onClose={() => setCreateRoleOpen(false)}
+          onConfirm={(name) => void createRole(name)}
+        />
+      )}
+      {renameRoleOpen && selectedRole && (
+        <RenameRoleDialog
+          value={renameDraft}
+          onChange={setRenameDraft}
+          onClose={() => setRenameRoleOpen(false)}
+          onConfirm={(name) => void saveRoleName(name)}
+        />
+      )}
+      {detailPermissionCode && (
+        <PermissionDetailDialog
+          permission={permissionViews.find((item) => item.code === detailPermissionCode) ?? null}
+          onClose={() => setDetailPermissionCode('')}
+        />
       )}
     </div>
+  );
+}
+
+function CreateRoleDialog({
+  value,
+  onChange,
+  onClose,
+  onConfirm
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onConfirm: (name: string) => void;
+}) {
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    onConfirm(value);
+  }
+
+  return (
+    <ActionModal
+      title="创建角色"
+      description="为新角色输入名称，创建后可继续配置权限。"
+      titleId="create-role-modal-title"
+      onClose={onClose}
+      onSubmit={submit}
+      footer={(
+        <>
+          <button className="ghost" type="button" onClick={onClose}>取消</button>
+          <button className="primary" type="submit" disabled={!value.trim()}>
+            <Plus size={16} />创建
+          </button>
+        </>
+      )}
+    >
+      <label>
+        角色名称
+        <input autoFocus placeholder="新增角色名称" value={value} onChange={(event) => onChange(event.target.value)} />
+      </label>
+    </ActionModal>
+  );
+}
+
+function RenameRoleDialog({
+  value,
+  onChange,
+  onClose,
+  onConfirm
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onConfirm: (name: string) => void;
+}) {
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    onConfirm(value);
+  }
+
+  return (
+    <ActionModal
+      title="重命名角色"
+      description="修改当前角色的显示名称。"
+      titleId="rename-role-modal-title"
+      onClose={onClose}
+      onSubmit={submit}
+      footer={(
+        <>
+          <button className="ghost" type="button" onClick={onClose}>取消</button>
+          <button className="primary" type="submit" disabled={!value.trim()}>
+            <Save size={16} />保存
+          </button>
+        </>
+      )}
+    >
+      <label>
+        角色名称
+        <input autoFocus value={value} onChange={(event) => onChange(event.target.value)} />
+      </label>
+    </ActionModal>
+  );
+}
+
+function PermissionDetailDialog({
+  permission,
+  onClose
+}: {
+  permission: PermissionView | null;
+  onClose: () => void;
+}) {
+  if (!permission) {
+    return null;
+  }
+
+  return (
+    <FormModal
+      title={permission.zhName}
+      description={permission.code}
+      titleId="permission-detail-modal-title"
+      onClose={onClose}
+      modalClassName="permission-detail-modal"
+      footer={<button className="ghost" type="button" onClick={onClose}>关闭</button>}
+    >
+      <div className="permission-related-panel">
+        <p>{permission.description}</p>
+        <div className="permission-related-links">
+          {permission.relatedEntries.map((entry, index) => (
+            <span key={permission.code + '-' + entry.kind + '-' + entry.label + '-' + index}>
+              [{entry.kind}] {entry.label}
+            </span>
+          ))}
+        </div>
+      </div>
+    </FormModal>
   );
 }
 

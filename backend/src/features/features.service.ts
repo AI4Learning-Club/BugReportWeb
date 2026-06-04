@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException
 } from '@nestjs/common';
-import { FeatureStatus, Prisma, Severity } from '@prisma/client';
+import { FeatureActivityType, FeatureStatus, Prisma, Severity } from '@prisma/client';
 import { AuthUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -22,6 +22,14 @@ type FeatureBody = {
 };
 
 type DeletedFilter = 'active' | 'only' | 'all';
+
+type ActivityChange = {
+  field: string;
+  from: string | null;
+  to: string | null;
+};
+
+type ActivityContext = Record<string, string | number | boolean | null>;
 
 const actorSelect = {
   select: { id: true, username: true, displayName: true }
@@ -54,11 +62,8 @@ export class FeaturesService {
   }
 
   async detail(id: string, user: AuthUser) {
-    const feature = await this.prisma.feature.findUnique({
-      where: { id },
-      include: this.featureInclude()
-    });
-    if (!feature || (feature.deletedAt && !user.isAdmin)) {
+    const feature = await this.findFeatureDetail(this.prisma, id);
+    if (feature.deletedAt && !user.isAdmin) {
       throw new NotFoundException('Feature not found');
     }
     return this.toFeatureResponse(feature);
@@ -84,11 +89,15 @@ export class FeaturesService {
         }
       });
 
-      const feature = await tx.feature.findUnique({
-        where: { id: created.id },
-        include: this.featureInclude()
+      await this.createActivity(tx, {
+        featureId: created.id,
+        actorId: user.id,
+        type: FeatureActivityType.CREATED,
+        createdAt: created.createdAt
       });
-      return this.toFeatureResponse(feature!);
+
+      const feature = await this.findFeatureDetail(tx, created.id);
+      return this.toFeatureResponse(feature);
     });
   }
 
@@ -124,17 +133,24 @@ export class FeaturesService {
       data.priority = this.normalizePriority(body.priority);
     }
 
-    if (Object.keys(data).length === 0) {
+    const changes = this.diffFields(feature, data);
+
+    if (changes.length === 0) {
       return this.detail(id, user);
     }
 
     return this.prisma.$transaction(async (tx) => {
       await tx.feature.update({ where: { id: feature.id }, data });
-      const updated = await tx.feature.findUnique({
-        where: { id: feature.id },
-        include: this.featureInclude()
+
+      await this.createActivity(tx, {
+        featureId: feature.id,
+        actorId: user.id,
+        type: FeatureActivityType.UPDATED,
+        changes
       });
-      return this.toFeatureResponse(updated!);
+
+      const updated = await this.findFeatureDetail(tx, feature.id);
+      return this.toFeatureResponse(updated);
     });
   }
 
@@ -146,11 +162,16 @@ export class FeaturesService {
     if (!body.status || !Object.values(FeatureStatus).includes(body.status)) {
       throw new BadRequestException('status must be PLANNED, IN_PROGRESS or DONE');
     }
-    await this.ensureFeature(id);
+    const feature = await this.ensureFeature(id);
+    const nextStatus = body.status!;
+
+    if (feature.status === nextStatus) {
+      throw new BadRequestException('Feature already has this status');
+    }
 
     return this.prisma.$transaction(async (tx) => {
-      const data: Prisma.FeatureUncheckedUpdateInput = { status: body.status! };
-      if (body.status === FeatureStatus.DONE) {
+      const data: Prisma.FeatureUncheckedUpdateInput = { status: nextStatus };
+      if (nextStatus === FeatureStatus.DONE) {
         data.completedAt = new Date();
         data.completedById = user.id;
       } else {
@@ -158,11 +179,17 @@ export class FeaturesService {
         data.completedById = null;
       }
       await tx.feature.update({ where: { id }, data });
-      const feature = await tx.feature.findUnique({
-        where: { id },
-        include: this.featureInclude()
+
+      await this.createActivity(tx, {
+        featureId: id,
+        actorId: user.id,
+        type: FeatureActivityType.STATUS_CHANGED,
+        fromStatus: feature.status,
+        toStatus: nextStatus
       });
-      return this.toFeatureResponse(feature!);
+
+      const updated = await this.findFeatureDetail(tx, id);
+      return this.toFeatureResponse(updated);
     });
   }
 
@@ -173,15 +200,29 @@ export class FeaturesService {
     }
     const reason = this.requireNote(body.reason);
 
-    await this.prisma.feature.update({
-      where: { id },
-      data: {
-        deletedAt: new Date(),
-        deletedById: user.id,
-        deleteReason: reason
-      }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.feature.update({
+        where: { id },
+        data: {
+          deletedAt: new Date(),
+          deletedById: user.id,
+          deleteReason: reason
+        }
+      });
+
+      await this.createActivity(tx, {
+        featureId: id,
+        actorId: user.id,
+        type: FeatureActivityType.DELETED,
+        note: reason,
+        context: {
+          deletedBy: user.displayName,
+          deletedById: user.id
+        }
+      });
+
+      return { ok: true };
     });
-    return { ok: true };
   }
 
   async permanentDelete(id: string, user: AuthUser) {
@@ -196,14 +237,48 @@ export class FeaturesService {
     return { ok: true };
   }
 
-  private featureInclude(): Prisma.FeatureInclude {
+  async removeActivity(featureId: string, activityId: string, user: AuthUser) {
+    await this.detail(featureId, user);
+
+    const activity = await this.prisma.featureActivity.findFirst({
+      where: { id: activityId, featureId },
+      select: { id: true }
+    });
+    if (!activity) {
+      throw new NotFoundException('Activity not found');
+    }
+
+    await this.prisma.featureActivity.delete({ where: { id: activityId } });
+    return { ok: true };
+  }
+
+  private featureInclude(detail = false): Prisma.FeatureInclude {
     return {
       system: true,
       creator: actorSelect,
       completedBy: actorSelect,
       deletedBy: actorSelect,
-      ...featurePersonnelInclude
+      ...featurePersonnelInclude,
+      ...(detail
+        ? {
+            activities: {
+              include: { actor: actorSelect },
+              orderBy: { createdAt: 'desc' as const }
+            }
+          }
+        : {})
     };
+  }
+
+  private async findFeatureDetail(tx: Prisma.TransactionClient | PrismaService, id: string) {
+    const feature = await tx.feature.findUnique({
+      where: { id },
+      include: this.featureInclude(true)
+    });
+    if (!feature) {
+      throw new NotFoundException('Feature not found');
+    }
+    return feature;
   }
 
   private toFeatureResponse(feature: any) {
@@ -276,5 +351,75 @@ export class FeaturesService {
       throw new ForbiddenException('Only admins or creators can edit features');
     }
     return feature;
+  }
+
+  private diffFields(original: Record<string, unknown>, updates: Record<string, unknown>) {
+    const changes: ActivityChange[] = [];
+
+    for (const [field, nextValue] of Object.entries(updates)) {
+      const previousValue = original[field];
+      if (previousValue === nextValue) {
+        continue;
+      }
+      changes.push({
+        field,
+        from: this.toChangeValue(previousValue),
+        to: this.toChangeValue(nextValue)
+      });
+    }
+
+    return changes;
+  }
+
+  private async createActivity(
+    tx: Prisma.TransactionClient,
+    input: {
+      featureId: string;
+      actorId: string;
+      type: FeatureActivityType;
+      note?: string;
+      fromStatus?: FeatureStatus;
+      toStatus?: FeatureStatus;
+      changes?: ActivityChange[];
+      context?: ActivityContext;
+      createdAt?: Date;
+    }
+  ) {
+    const data: Prisma.FeatureActivityUncheckedCreateInput = {
+      featureId: input.featureId,
+      actorId: input.actorId,
+      type: input.type
+    };
+
+    if (input.note !== undefined) {
+      data.note = input.note;
+    }
+    if (input.fromStatus !== undefined) {
+      data.fromStatus = input.fromStatus;
+    }
+    if (input.toStatus !== undefined) {
+      data.toStatus = input.toStatus;
+    }
+    if (input.changes && input.changes.length > 0) {
+      data.changes = input.changes as Prisma.InputJsonValue;
+    }
+    if (input.context && Object.keys(input.context).length > 0) {
+      data.context = input.context as Prisma.InputJsonValue;
+    }
+    if (input.createdAt) {
+      data.createdAt = input.createdAt;
+    }
+
+    await tx.featureActivity.create({ data });
+  }
+
+  private toChangeValue(value: unknown) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    return String(value);
   }
 }

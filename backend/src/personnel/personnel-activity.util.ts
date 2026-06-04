@@ -1,4 +1,4 @@
-import { BugActivityType, Prisma } from '@prisma/client';
+import { BugActivityType, FeatureActivityType, Prisma } from '@prisma/client';
 
 export type PersonnelActivityContext = Record<string, string | null>;
 
@@ -39,6 +39,28 @@ export async function recordBugPersonnelActivity(
   }
 
   await tx.bugActivity.create({ data });
+}
+
+export async function recordFeaturePersonnelActivity(
+  tx: Prisma.TransactionClient,
+  input: {
+    featureId: string;
+    actorId: string;
+    type: FeatureActivityType;
+    context?: PersonnelActivityContext;
+  }
+) {
+  const data: Prisma.FeatureActivityUncheckedCreateInput = {
+    featureId: input.featureId,
+    actorId: input.actorId,
+    type: input.type
+  };
+
+  if (input.context && Object.keys(input.context).length > 0) {
+    data.context = input.context as Prisma.InputJsonValue;
+  }
+
+  await tx.featureActivity.create({ data });
 }
 
 export function ownerContext(

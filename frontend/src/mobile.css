@@ -110,16 +110,16 @@
     transform: none;
   }
 
-  .app-shell:has(.permission-modal-backdrop) .nav {
+  body:has(.permission-modal-backdrop) .app-shell .nav {
     display: none;
   }
 
-  .app-shell:has(.bug-delete-modal-backdrop) .nav {
+  body:has(.bug-delete-modal-backdrop) .app-shell .nav {
     display: none;
   }
 
-  .app-shell:has(.permission-modal-backdrop),
-  .app-shell:has(.bug-delete-modal-backdrop) {
+  body:has(.permission-modal-backdrop) .app-shell,
+  body:has(.bug-delete-modal-backdrop) .app-shell {
     max-height: var(--app-viewport-height);
     overflow: hidden;
   }
@@ -616,8 +616,49 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
+    scrollbar-gutter: stable;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .permission-modal.dialog-panel-modal {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: auto;
+    max-height: min(720px, calc(var(--app-viewport-height) - 24px));
+  }
+
+  .permission-modal.dialog-panel-modal.personnel-manage-modal {
+    min-height: min(640px, calc(var(--app-viewport-height) - 24px));
+  }
+
+  .permission-modal.dialog-panel-modal .permission-modal-header {
+    padding: 14px 18px 10px;
+  }
+
+  .permission-modal.dialog-panel-modal .permission-modal-scroll {
+    padding: 10px 18px 4px;
+  }
+
+  .permission-modal.dialog-panel-modal .permission-modal-footer {
+    margin: 0;
+    padding: 10px 18px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .personnel-manage-body,
+  .user-manage-body {
+    gap: 10px;
+  }
+
+  .dialog-panel-modal .personnel-delegate-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dialog-panel-modal .personnel-delegate-row select,
+  .dialog-panel-modal .personnel-delegate-row button {
+    width: 100%;
   }
 
   .grant-modal-scroll,
@@ -630,6 +671,7 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
+    scrollbar-gutter: stable;
   }
 
   .bug-delete-modal-actions,

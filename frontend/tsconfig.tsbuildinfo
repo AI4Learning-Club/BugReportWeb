@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/roleadminpanel.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/appdialogs.tsx","./src/modalshell.tsx","./src/multiselectdropdown.tsx","./src/personnelpanel.tsx","./src/roleadminpanel.tsx","./src/runtimeinfofields.tsx","./src/activityutils.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts"],"version":"5.9.3"}

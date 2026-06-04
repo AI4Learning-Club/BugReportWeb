@@ -31,6 +31,7 @@ export type Permission =
   | 'CREATE_FEATURE'
   | 'UPDATE_FEATURE'
   | 'DELETE_FEATURE'
+  | 'DELETE_FEATURE_ACTIVITY'
   | 'VIEW_STATS'
   | 'MANAGE_SYSTEMS'
   | 'MANAGE_ROLES'
@@ -148,6 +149,36 @@ export type BugDetail = BugItem & {
   activities: BugActivity[];
 };
 
+export type FeatureActivityChange = {
+  field: string;
+  from: string | null;
+  to: string | null;
+};
+
+export type FeatureActivityContext = Record<string, string | number | boolean | null>;
+
+export type FeatureActivity = {
+  id: string;
+  type:
+    | 'CREATED'
+    | 'UPDATED'
+    | 'STATUS_CHANGED'
+    | 'DELETED'
+    | 'OWNER_CLAIMED'
+    | 'OWNER_DELEGATED'
+    | 'OWNER_REVOKED'
+    | 'RELATED_JOINED'
+    | 'RELATED_ADDED'
+    | 'RELATED_REMOVED';
+  note: string | null;
+  fromStatus: FeatureStatus | null;
+  toStatus: FeatureStatus | null;
+  changes: FeatureActivityChange[] | null;
+  context: FeatureActivityContext | null;
+  createdAt: string;
+  actor: AssignableUser;
+};
+
 export type FeatureItem = {
   id: string;
   title: string;
@@ -165,6 +196,10 @@ export type FeatureItem = {
   deleteReason: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type FeatureDetail = FeatureItem & {
+  activities: FeatureActivity[];
 };
 
 export type Screenshot = {
@@ -246,6 +281,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'CREATE_FEATURE',
   'UPDATE_FEATURE',
   'DELETE_FEATURE',
+  'DELETE_FEATURE_ACTIVITY',
   'VIEW_STATS',
   'MANAGE_SYSTEMS',
   'MANAGE_ROLES',
@@ -265,6 +301,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   CREATE_FEATURE: '登记功能',
   UPDATE_FEATURE: '更新功能',
   DELETE_FEATURE: '删除功能',
+  DELETE_FEATURE_ACTIVITY: '删除功能活动记录',
   VIEW_STATS: '查看 KPI 统计',
   MANAGE_SYSTEMS: '系统管理',
   MANAGE_ROLES: '角色管理',

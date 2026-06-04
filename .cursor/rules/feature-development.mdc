@@ -1,0 +1,49 @@
+---
+description: 新功能开发约束（权限、响应式、页面组织、缓动动效、活动记录与撤销）— 详见 AGENTS.md
+alwaysApply: true
+---
+
+# BugReportWeb 功能开发约束
+
+实现或扩展本仓库功能前，**必须先阅读并对照**项目根目录 `AGENTS.md`。以下为必须遵守的五条原则与交付检查项。
+
+## 1. 权限
+
+- 新的写操作、管理模块或跨用户能力 → 评估是否需要新 `Permission`。
+- 若有：完成 schema 枚举、迁移、`permission-catalog.ts`、seed、`@Permissions`、前端 `api.ts` + `RoleAdminPanel.tsx` 的 `PERMISSION_UI_META` + `hasPermission` UI，确保出现在**角色管理**页。
+- 不要只靠前端隐藏按钮做鉴权。
+
+## 2. 响应式布局
+
+- 新 UI 须在桌面与手机可用；断点见 `frontend/src/mobile.css`（`max-width: 900px` / `max-height: 560px`）。
+- 表格 `<td>` 使用 `data-label`；操作区窄屏可换行；避免仅 hover 才能完成的必要操作。
+- 新增过渡 / 入场动画遵循 §4；`prefers-reduced-motion` 已在 `styles.css` 全局处理。
+
+## 3. 页面组织与弹窗
+
+- 主页 / 详情保持轻量可扫读；复杂表单、确认流程、管理配置等优先用**弹窗 / 模态面板**，避免在常驻视图堆砌大量 inline 内容。
+- 复用现有弹窗结构（`App.tsx`、`RoleAdminPanel.tsx`）；弹窗 body 可滚动，窄屏下可关闭且不裁切；打开 / 关闭动效遵循 §4。
+
+## 4. 缓动与过渡动效
+
+- 动效辅助理解，短而稳；优先 `opacity` + `transform`，避免动画 `width` / `height` 等触发布局抖动。
+- 使用 `frontend/src/styles.css` 中的 **`--ease-out`**（微交互、`transition`）与 **`--ease-smooth`**（入场、`animation`）；不要内联重复 `cubic-bezier` 或使用 `linear`。
+- 优先复用现有 keyframes（`surface-enter`、`row-enter`、`modal-*-enter/exit` 等）；弹窗关闭沿用 **`.closing` + exit keyframes**，动画结束后再卸载 DOM。
+- JS 关弹窗等逻辑须与 CSS 时长一致，或使用 `animationend`；勿仅依赖任意 `setTimeout`。
+
+## 5. 活动记录与撤销
+
+- **所有写入**在事务内写入活动记录（Bug：`BugActivity`；Feature 扩展时需设计对应审计模型）。
+- 前端更新 `activityTitle`、`describeActivityContext` 与 `api.ts` 类型。
+- 用户可见的写入须提供**撤销或对称反向操作**（如人员：撤销负责人、退出相关人），并与权限、活动类型对齐。
+
+## 交付前自检
+
+- [ ] 新权限已接入角色管理（若适用）
+- [ ] 窄屏布局已验证
+- [ ] 复杂交互已优先放入弹窗（若适用）
+- [ ] 过渡 / 入场动画使用 `--ease-out` / `--ease-smooth` 与现有 keyframes（§4）
+- [ ] 写入有活动记录且可撤销
+- [ ] `backend` / `frontend` build 通过
+
+细节、文件路径与示例见 **AGENTS.md**。

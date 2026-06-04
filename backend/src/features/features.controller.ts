@@ -87,6 +87,16 @@ export class FeaturesController {
     return this.featuresService.updateStatus(id, body, request.user);
   }
 
+  @Delete(':id/activities/:activityId')
+  @Permissions(Permission.DELETE_FEATURE_ACTIVITY)
+  removeActivity(
+    @Param('id') id: string,
+    @Param('activityId') activityId: string,
+    @Req() request: RequestWithUser
+  ) {
+    return this.featuresService.removeActivity(id, activityId, request.user);
+  }
+
   @Post(':id/delete')
   @Permissions(Permission.DELETE_FEATURE)
   softDelete(

@@ -1,11 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { BugActivityType, Prisma } from '@prisma/client';
+import { BugActivityType, FeatureActivityType, Prisma } from '@prisma/client';
 import { AuthUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   fetchUserDisplayNames,
   ownerContext,
   recordBugPersonnelActivity,
+  recordFeaturePersonnelActivity,
   relatedNamesContext
 } from './personnel-activity.util';
 import { EntityKind, PersonnelPatchBody } from './personnel.types';
@@ -69,6 +70,14 @@ export class PersonnelService {
           type: BugActivityType.RELATED_JOINED,
           context: relatedNamesContext(names, [user.id])
         });
+      } else {
+        const names = await fetchUserDisplayNames(tx, [user.id]);
+        await recordFeaturePersonnelActivity(tx, {
+          featureId: id,
+          actorId: user.id,
+          type: FeatureActivityType.RELATED_JOINED,
+          context: relatedNamesContext(names, [user.id])
+        });
       }
     });
 
@@ -98,6 +107,16 @@ export class PersonnelService {
       } else {
         await tx.featureRelatedUser.deleteMany({ where: { featureId: id, userId: user.id } });
         await tx.feature.update({ where: { id }, data: { ownerId: user.id } });
+        const names = await fetchUserDisplayNames(
+          tx,
+          [previousOwnerId, user.id].filter(Boolean) as string[]
+        );
+        await recordFeaturePersonnelActivity(tx, {
+          featureId: id,
+          actorId: user.id,
+          type: FeatureActivityType.OWNER_CLAIMED,
+          context: ownerContext(names, previousOwnerId, user.id)
+        });
       }
     });
 
@@ -159,6 +178,16 @@ export class PersonnelService {
             await tx.featureRelatedUser.deleteMany({ where: { featureId: id, userId: ownerId } });
           }
           await tx.feature.update({ where: { id }, data: { ownerId } });
+          const names = await fetchUserDisplayNames(
+            tx,
+            [previousOwnerId, ownerId].filter(Boolean) as string[]
+          );
+          await recordFeaturePersonnelActivity(tx, {
+            featureId: id,
+            actorId: user.id,
+            type: ownerId ? FeatureActivityType.OWNER_DELEGATED : FeatureActivityType.OWNER_REVOKED,
+            context: ownerContext(names, previousOwnerId, ownerId)
+          });
         }
       }
 
@@ -188,6 +217,13 @@ export class PersonnelService {
           await tx.featureRelatedUser.deleteMany({
             where: { featureId: id, userId: { in: removeIds } }
           });
+          const names = await fetchUserDisplayNames(tx, removeIds);
+          await recordFeaturePersonnelActivity(tx, {
+            featureId: id,
+            actorId: user.id,
+            type: FeatureActivityType.RELATED_REMOVED,
+            context: relatedNamesContext(names, removeIds)
+          });
         }
       }
 
@@ -214,6 +250,14 @@ export class PersonnelService {
             bugId: id,
             actorId: user.id,
             type: BugActivityType.RELATED_ADDED,
+            context: relatedNamesContext(names, addIds)
+          });
+        } else {
+          const names = await fetchUserDisplayNames(tx, addIds);
+          await recordFeaturePersonnelActivity(tx, {
+            featureId: id,
+            actorId: user.id,
+            type: FeatureActivityType.RELATED_ADDED,
             context: relatedNamesContext(names, addIds)
           });
         }
