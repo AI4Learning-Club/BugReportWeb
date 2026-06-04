@@ -73,6 +73,46 @@ export const PERMISSION_CATALOG: PermissionCatalogItem[] = [
     apis: ['DELETE /bugs/:id/activities/:activityId']
   },
   {
+    code: Permission.CREATE_FEATURE,
+    zhName: '登记功能',
+    enName: 'Create Feature',
+    group: '功能管理',
+    summary: '允许登记新的功能需求。',
+    description: '可访问功能登记页，提交功能标题、描述与优先级等初始信息。',
+    surfaces: ['功能列表', '登记功能页面'],
+    apis: ['POST /features']
+  },
+  {
+    code: Permission.UPDATE_FEATURE,
+    zhName: '更新功能',
+    enName: 'Update Feature',
+    group: '功能管理',
+    summary: '允许编辑功能信息与状态。',
+    description: '可编辑功能内容、状态等基础信息。',
+    surfaces: ['功能详情页', '功能编辑页'],
+    apis: ['PATCH /features/:id', 'PATCH /features/:id/status']
+  },
+  {
+    code: Permission.DELETE_FEATURE,
+    zhName: '删除功能',
+    enName: 'Delete Feature',
+    group: '功能管理',
+    summary: '允许软删除功能记录。',
+    description: '普通角色可软删除自己创建的功能；管理员可彻底删除。',
+    surfaces: ['功能列表', '功能详情页'],
+    apis: ['POST /features/:id/delete', 'DELETE /features/:id/permanent']
+  },
+  {
+    code: Permission.VIEW_STATS,
+    zhName: '查看 KPI 统计',
+    enName: 'View KPI Stats',
+    group: '数据分析',
+    summary: '允许访问团队 KPI 与效率统计页。',
+    description: '可查看各成员 bug/功能处理量、负责项目数、平均修复时长等汇总指标。',
+    surfaces: ['KPI 统计页'],
+    apis: ['GET /stats/kpi']
+  },
+  {
     code: Permission.MANAGE_SYSTEMS,
     zhName: '系统管理',
     enName: 'Manage Systems',
@@ -101,6 +141,36 @@ export const PERMISSION_CATALOG: PermissionCatalogItem[] = [
     description: '可管理用户状态、分配角色、切换管理员标记，并处理待审批用户。',
     surfaces: ['管理后台 / 用户'],
     apis: ['GET /users', 'PATCH /users/:id/*']
+  },
+  {
+    code: Permission.BECOME_ITEM_OWNER,
+    zhName: '成为负责人',
+    enName: 'Become Item Owner',
+    group: '人员分配',
+    summary: '允许将自己设为 Bug/功能的负责人。',
+    description: '可在 Bug 或功能详情页自荐成为总负责人，也可自行卸任当前负责人身份。',
+    surfaces: ['Bug 详情页', '功能详情页'],
+    apis: ['POST /bugs/:id/personnel/claim-owner', 'POST /features/:id/personnel/claim-owner']
+  },
+  {
+    code: Permission.DELEGATE_ITEM_RELATED,
+    zhName: '委派相关人',
+    enName: 'Delegate Related Personnel',
+    group: '人员分配',
+    summary: '允许委派他人成为 Bug/功能的相关人员。',
+    description: '可在 Bug 或功能详情页添加或移除相关人员；相关人员也可自行退出。',
+    surfaces: ['Bug 详情页', '功能详情页'],
+    apis: ['PATCH /bugs/:id/personnel', 'PATCH /features/:id/personnel']
+  },
+  {
+    code: Permission.DELEGATE_ITEM_OWNER,
+    zhName: '委派负责人',
+    enName: 'Delegate Item Owner',
+    group: '人员分配',
+    summary: '允许委派他人成为 Bug/功能的负责人。',
+    description: '可在 Bug 或功能详情页指定或撤销 Bug/功能的总负责人。',
+    surfaces: ['Bug 详情页', '功能详情页'],
+    apis: ['PATCH /bugs/:id/personnel', 'PATCH /features/:id/personnel']
   }
 ];
 

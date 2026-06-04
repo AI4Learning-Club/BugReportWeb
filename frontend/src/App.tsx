@@ -1,16 +1,19 @@
 import {
   ArrowLeft,
   Archive,
+  BarChart3,
   Bug,
   CheckCircle2,
   ClipboardList,
   Eye,
+  Layers,
   LogOut,
   Pencil,
   Plus,
   Save,
   Settings,
   Shield,
+  Sparkles,
   Trash2,
   Upload,
   UserCheck,
@@ -19,17 +22,27 @@ import {
 import { FormEvent, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
+  AssignableUser,
   BugActivity,
   BugDetail,
   BugItem,
   BugStatus,
+  FeatureItem,
+  FeatureStatus,
+  KpiOverview,
   PermissionDefinition,
   Role,
   TrackedSystem,
   User,
   api,
   assetUrl,
-  hasPermission
+  claimBugOwner,
+  claimFeatureOwner,
+  hasPermission,
+  joinBugPersonnel,
+  joinFeaturePersonnel,
+  patchBugPersonnel,
+  patchFeaturePersonnel
 } from './api';
 import { RoleAdminPanel } from './RoleAdminPanel';
 
@@ -121,6 +134,11 @@ function App() {
         <Route path="/bugs/:id/edit" element={<Protected><Shell><BugEditPage /></Shell></Protected>} />
         <Route path="/bugs/:id" element={<Protected><Shell><BugDetailPage /></Shell></Protected>} />
         <Route path="/admin/systems/:id/edit" element={<Protected><Shell><SystemEditPage /></Shell></Protected>} />
+        <Route path="/features" element={<Protected><Shell><FeatureDashboard /></Shell></Protected>} />
+        <Route path="/features/new" element={<Protected><Shell><NewFeaturePage /></Shell></Protected>} />
+        <Route path="/features/:id/edit" element={<Protected><Shell><FeatureEditPage /></Shell></Protected>} />
+        <Route path="/features/:id" element={<Protected><Shell><FeatureDetailPage /></Shell></Protected>} />
+        <Route path="/stats" element={<Protected><Shell><StatsPage /></Shell></Protected>} />
         <Route path="/admin" element={<Protected><Shell><AdminPage /></Shell></Protected>} />
       </Routes>
     </AuthProvider>
@@ -153,12 +171,15 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar">
         <Link className="brand" to="/">
-          <Bug size={22} />
-          <span>BugReportWeb</span>
+          <Layers size={22} />
+          <span>SystemController</span>
         </Link>
         <nav className="nav">
           <Link className={isActive('/') ? 'active' : undefined} to="/"><ClipboardList size={18} />Bug 列表</Link>
           {hasPermission(user, 'CREATE_BUG') && <Link className={isActive('/bugs/new') ? 'active' : undefined} to="/bugs/new"><Plus size={18} />登记 bug</Link>}
+          <Link className={isActive('/features') ? 'active' : undefined} to="/features"><Sparkles size={18} />功能列表</Link>
+          {hasPermission(user, 'CREATE_FEATURE') && <Link className={isActive('/features/new') ? 'active' : undefined} to="/features/new"><Plus size={18} />登记功能</Link>}
+          {hasPermission(user, 'VIEW_STATS') && <Link className={isActive('/stats') ? 'active' : undefined} to="/stats"><BarChart3 size={18} />KPI 统计</Link>}
           {canAdmin && <Link className={isActive('/admin') ? 'active' : undefined} to="/admin"><Settings size={18} />管理后台</Link>}
         </nav>
         <div className="profile">
@@ -260,8 +281,10 @@ function Dashboard() {
   const navigate = useNavigate();
   const [bugs, setBugs] = useState<BugItem[]>([]);
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [systemId, setSystemId] = useState('');
   const [status, setStatus] = useState('');
+  const [participantUserId, setParticipantUserId] = useState('');
   const [deleted, setDeleted] = useState<'active' | 'only' | 'all'>('active');
   const [error, setError] = useState('');
   const [deleteDialog, setDeleteDialog] = useState<{ bug: BugItem; mode: 'soft' | 'permanent' } | null>(null);
@@ -277,6 +300,7 @@ function Dashboard() {
       if (systemId) params.set('systemId', systemId);
       if (status) params.set('status', status);
       if (deleted !== 'active') params.set('deleted', deleted);
+      if (participantUserId) params.set('participantUserId', participantUserId);
       setBugs(await api<BugItem[]>(`/bugs?${params.toString()}`));
     } catch (error) {
       setError(readError(error));
@@ -285,11 +309,12 @@ function Dashboard() {
 
   useEffect(() => {
     void api<TrackedSystem[]>('/systems').then(setSystems);
+    void api<AssignableUser[]>('/auth/assignable-users').then(setAssignableUsers).catch(() => undefined);
   }, []);
 
   useEffect(() => {
     void load();
-  }, [systemId, status, deleted]);
+  }, [systemId, status, deleted, participantUserId]);
 
   async function handleBugAction(bug: BugItem, action: string) {
     if (action === 'edit') {
@@ -346,6 +371,12 @@ function Dashboard() {
           <option value="OPEN">未修复</option>
           <option value="FIXED">已修复</option>
         </select>
+        <select value={participantUserId} onChange={(event) => setParticipantUserId(event.target.value)}>
+          <option value="">全部相关人员</option>
+          {assignableUsers.map((person) => (
+            <option key={person.id} value={person.id}>{person.displayName}</option>
+          ))}
+        </select>
         {canViewRecycleBin && (
           <select value={deleted} onChange={(event) => setDeleted(event.target.value as 'active' | 'only' | 'all')}>
             <option value="active">仅正常数据</option>
@@ -363,6 +394,7 @@ function Dashboard() {
               <th>系统</th>
               <th>状态</th>
               <th>创建人</th>
+              <th>负责人</th>
               <th>截图</th>
               <th>运行信息</th>
               <th>确认出现</th>
@@ -387,6 +419,7 @@ function Dashboard() {
                   <td data-label="系统">{bug.system.name}</td>
                   <td data-label="状态"><StatusBadge status={bug.status} /></td>
                   <td data-label="创建人">{bug.creator.displayName}</td>
+                  <td data-label="负责人">{bug.owner?.displayName ?? '未指定'}</td>
                   <td data-label="截图">{bug.screenshotCount}</td>
                   <td data-label="运行信息">{bug.runtimeInfoCount}</td>
                   <td data-label="确认出现">{bug.appearedCount}</td>
@@ -427,7 +460,7 @@ function Dashboard() {
             })}
             {bugs.length === 0 && (
               <tr>
-                <td colSpan={deleted !== 'active' ? 10 : 9} className="empty-cell">
+                <td colSpan={deleted !== 'active' ? 11 : 10} className="empty-cell">
                   {deleted === 'only' ? '回收站中暂无 bug。' : '暂无匹配的 bug。'}
                 </td>
               </tr>
@@ -777,6 +810,14 @@ function BugDetailPage() {
                     {latestFixActivity?.note && <p>{latestFixActivity.note}</p>}
                   </div>
                 )}
+                <PersonnelPanel
+                  kind="bug"
+                  entityId={bug.id}
+                  owner={bug.owner}
+                  relatedUsers={bug.relatedUsers}
+                  disabled={Boolean(bug.deletedAt)}
+                  onUpdated={load}
+                />
               </div>
               <div className="stats bug-detail-stats">
                 <span>出现次数：{bug.appearedCount}</span>
@@ -1142,7 +1183,10 @@ function BugEditPage() {
     if (!id || !draft) return;
     setError('');
     try {
-      await api(`/bugs/${id}`, { method: 'PATCH', body: JSON.stringify(draft) });
+      await api(`/bugs/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(draft)
+      });
       navigate(`/bugs/${id}`);
     } catch (error) {
       setError(readError(error));
@@ -1203,6 +1247,620 @@ function BugEditPage() {
       </section>
     </>
   );
+}
+
+function FeatureDashboard() {
+  const { user } = useAuth();
+  const [features, setFeatures] = useState<FeatureItem[]>([]);
+  const [systems, setSystems] = useState<TrackedSystem[]>([]);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  const [systemId, setSystemId] = useState('');
+  const [status, setStatus] = useState('');
+  const [participantUserId, setParticipantUserId] = useState('');
+  const [deleted, setDeleted] = useState<'active' | 'only' | 'all'>('active');
+  const [error, setError] = useState('');
+  const canCreate = hasPermission(user, 'CREATE_FEATURE');
+  const canViewRecycleBin = Boolean(user?.isAdmin);
+
+  async function load() {
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (systemId) params.set('systemId', systemId);
+      if (status) params.set('status', status);
+      if (deleted !== 'active') params.set('deleted', deleted);
+      if (participantUserId) params.set('participantUserId', participantUserId);
+      setFeatures(await api<FeatureItem[]>(`/features?${params.toString()}`));
+    } catch (loadError) {
+      setError(readError(loadError));
+    }
+  }
+
+  useEffect(() => {
+    void api<TrackedSystem[]>('/systems').then(setSystems);
+    void api<AssignableUser[]>('/auth/assignable-users').then(setAssignableUsers).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [systemId, status, deleted, participantUserId]);
+
+  return (
+    <>
+      <PageHeader
+        title={deleted === 'only' ? '功能回收站' : '功能列表'}
+        action={canCreate ? <Link className="primary compact" to="/features/new"><Plus size={16} />登记功能</Link> : undefined}
+      />
+      <div className="toolbar">
+        <select value={systemId} onChange={(event) => setSystemId(event.target.value)}>
+          <option value="">全部系统</option>
+          {systems.map((system) => <option key={system.id} value={system.id}>{system.name}</option>)}
+        </select>
+        <select value={status} onChange={(event) => setStatus(event.target.value)}>
+          <option value="">全部状态</option>
+          <option value="PLANNED">规划中</option>
+          <option value="IN_PROGRESS">进行中</option>
+          <option value="DONE">已完成</option>
+        </select>
+        <select value={participantUserId} onChange={(event) => setParticipantUserId(event.target.value)}>
+          <option value="">全部相关人员</option>
+          {assignableUsers.map((person) => (
+            <option key={person.id} value={person.id}>{person.displayName}</option>
+          ))}
+        </select>
+        {canViewRecycleBin && (
+          <select value={deleted} onChange={(event) => setDeleted(event.target.value as 'active' | 'only' | 'all')}>
+            <option value="active">仅正常数据</option>
+            <option value="only">仅回收站</option>
+            <option value="all">全部数据</option>
+          </select>
+        )}
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>标题</th>
+              <th>系统</th>
+              <th>状态</th>
+              <th>优先级</th>
+              <th>创建人</th>
+              <th>负责人</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {features.map((feature) => {
+              const canEdit = Boolean(!feature.deletedAt && (user?.isAdmin || feature.creator.id === user?.id));
+              return (
+                <tr key={feature.id}>
+                  <td data-label="标题"><Link className="row-link" to={`/features/${feature.id}`}>{feature.title}</Link></td>
+                  <td data-label="系统">{feature.system.name}</td>
+                  <td data-label="状态"><FeatureStatusBadge status={feature.status} /></td>
+                  <td data-label="优先级">{severityLabel(feature.priority)}</td>
+                  <td data-label="创建人">{feature.creator.displayName}</td>
+                  <td data-label="负责人">{feature.owner?.displayName ?? '未指定'}</td>
+                  <td data-label="操作">
+                    <div className="actions bug-row-actions">
+                      {canEdit && hasPermission(user, 'UPDATE_FEATURE') && (
+                        <Link className="ghost compact" to={`/features/${feature.id}/edit`}><Pencil size={16} />编辑</Link>
+                      )}
+                      <Link className="ghost compact" to={`/features/${feature.id}`}><Eye size={16} />详情</Link>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {features.length === 0 && (
+              <tr><td colSpan={7} className="empty-cell">{deleted === 'only' ? '回收站中暂无功能。' : '暂无匹配的功能。'}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function NewFeaturePage() {
+  const navigate = useNavigate();
+  const [systems, setSystems] = useState<TrackedSystem[]>([]);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({ systemId: '', title: '', description: '', priority: 'MEDIUM' });
+
+  useEffect(() => {
+    void api<TrackedSystem[]>('/systems').then(setSystems);
+  }, []);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError('');
+    try {
+      const feature = await api<FeatureItem>('/features', {
+        method: 'POST',
+        body: JSON.stringify(form)
+      });
+      navigate(`/features/${feature.id}`);
+    } catch (submitError) {
+      setError(readError(submitError));
+    }
+  }
+
+  return (
+    <>
+      <PageHeader title="登记功能" />
+      <form className="panel-form" onSubmit={submit}>
+        <div className="grid two">
+          <label>系统<select required value={form.systemId} onChange={(event) => setForm({ ...form, systemId: event.target.value })}>
+            <option value="">选择系统</option>
+            {systems.map((system) => <option key={system.id} value={system.id}>{system.name}</option>)}
+          </select></label>
+          <label>优先级<select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value })}>
+            <option value="LOW">低</option>
+            <option value="MEDIUM">中</option>
+            <option value="HIGH">高</option>
+            <option value="CRITICAL">严重</option>
+          </select></label>
+        </div>
+        <label>标题<input required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+        <label>描述<textarea required value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+        {error && <p className="error">{error}</p>}
+        <button className="primary" type="submit"><Save size={16} />保存</button>
+      </form>
+    </>
+  );
+}
+
+function FeatureDetailPage() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const [feature, setFeature] = useState<FeatureItem | null>(null);
+  const [error, setError] = useState('');
+
+  async function load() {
+    if (!id) return;
+    setFeature(await api<FeatureItem>(`/features/${id}`));
+  }
+
+  useEffect(() => {
+    void load().catch((loadError) => setError(readError(loadError)));
+  }, [id]);
+
+  if (!feature) {
+    return <div>{error || '加载中...'}</div>;
+  }
+
+  const canEdit = Boolean(!feature.deletedAt && (user?.isAdmin || feature.creator.id === user?.id));
+  const canUpdate = hasPermission(user, 'UPDATE_FEATURE');
+
+  return (
+    <>
+      <PageHeader
+        title={feature.title}
+        action={(
+          <div className="actions">
+            <Link className="ghost compact" to="/features"><ArrowLeft size={16} />返回列表</Link>
+            {canEdit && canUpdate && (
+              <Link className="ghost compact" to={`/features/${feature.id}/edit`}><Pencil size={16} />编辑</Link>
+            )}
+            {canUpdate && !feature.deletedAt && (
+              <select
+                className="action-select"
+                value={feature.status}
+                onChange={async (event) => {
+                  try {
+                    await api(`/features/${feature.id}/status`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ status: event.target.value })
+                    });
+                    await load();
+                  } catch (actionError) {
+                    setError(readError(actionError));
+                  }
+                }}
+              >
+                <option value="PLANNED">规划中</option>
+                <option value="IN_PROGRESS">进行中</option>
+                <option value="DONE">已完成</option>
+              </select>
+            )}
+          </div>
+        )}
+      />
+      {error && <p className="error">{error}</p>}
+      <section className="panel">
+        <div className="meta-row">
+          <FeatureStatusBadge status={feature.status} />
+          <span>系统：{feature.system.name}</span>
+          <span>创建人：{feature.creator.displayName}</span>
+          <span>优先级：{severityLabel(feature.priority)}</span>
+        </div>
+        <InfoBlock title="描述" value={feature.description} tone="primary" />
+        {feature.status === 'DONE' && (
+          <p>完成人：{feature.completedBy?.displayName ?? '未知'} · {feature.completedAt ? formatDateTime(feature.completedAt) : ''}</p>
+        )}
+        <PersonnelPanel
+          kind="feature"
+          entityId={feature.id}
+          owner={feature.owner}
+          relatedUsers={feature.relatedUsers}
+          disabled={Boolean(feature.deletedAt)}
+          onUpdated={load}
+        />
+      </section>
+    </>
+  );
+}
+
+function FeatureEditPage() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [feature, setFeature] = useState<FeatureItem | null>(null);
+  const [systems, setSystems] = useState<TrackedSystem[]>([]);
+  const [form, setForm] = useState({ systemId: '', title: '', description: '', priority: 'MEDIUM' });
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!id) return;
+    void Promise.all([api<FeatureItem>(`/features/${id}`), api<TrackedSystem[]>('/systems')])
+      .then(([nextFeature, nextSystems]) => {
+        setFeature(nextFeature);
+        setForm({
+          systemId: nextFeature.system.id,
+          title: nextFeature.title,
+          description: nextFeature.description,
+          priority: nextFeature.priority
+        });
+        setSystems(nextSystems);
+      })
+      .catch((loadError) => setError(readError(loadError)));
+  }, [id]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!id) return;
+    setError('');
+    try {
+      await api(`/features/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(form)
+      });
+      navigate(`/features/${id}`);
+    } catch (submitError) {
+      setError(readError(submitError));
+    }
+  }
+
+  if (!feature) {
+    return <div>{error || '加载中'}</div>;
+  }
+
+  const canEdit = Boolean(user?.isAdmin || feature.creator.id === user?.id);
+  if (!canEdit) {
+    return <Navigate to={`/features/${feature.id}`} replace />;
+  }
+
+  return (
+    <>
+      <PageHeader title="编辑功能" action={<Link className="ghost compact" to={`/features/${feature.id}`}><ArrowLeft size={16} />返回详情</Link>} />
+      <form className="panel-form editor-panel" onSubmit={submit}>
+        <div className="grid two">
+          <label>系统<select required value={form.systemId} onChange={(event) => setForm({ ...form, systemId: event.target.value })}>
+            {systems.map((system) => <option key={system.id} value={system.id}>{system.name}</option>)}
+          </select></label>
+          <label>优先级<select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value })}>
+            <option value="LOW">低</option>
+            <option value="MEDIUM">中</option>
+            <option value="HIGH">高</option>
+            <option value="CRITICAL">严重</option>
+          </select></label>
+        </div>
+        <label>标题<input required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+        <label>描述<textarea required value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+        {error && <p className="error">{error}</p>}
+        <button className="primary" type="submit"><Save size={16} />保存修改</button>
+      </form>
+    </>
+  );
+}
+
+function StatsPage() {
+  const { user } = useAuth();
+  const [stats, setStats] = useState<KpiOverview | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!hasPermission(user, 'VIEW_STATS')) {
+      return;
+    }
+    void api<KpiOverview>('/stats/kpi')
+      .then(setStats)
+      .catch((loadError) => setError(readError(loadError)));
+  }, [user]);
+
+  if (!hasPermission(user, 'VIEW_STATS')) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (!stats) {
+    return <div>{error || '加载 KPI 数据...'}</div>;
+  }
+
+  return (
+    <>
+      <PageHeader title="KPI 统计" />
+      {error && <p className="error">{error}</p>}
+      <section className="stats-cards">
+        <div className="stat-card"><strong>{stats.totals.openBugs}</strong><span>未修复 Bug</span></div>
+        <div className="stat-card"><strong>{stats.totals.fixedBugs}</strong><span>已修复 Bug</span></div>
+        <div className="stat-card"><strong>{stats.totals.activeFeatures}</strong><span>进行中功能</span></div>
+        <div className="stat-card"><strong>{stats.totals.doneFeatures}</strong><span>已完成功能</span></div>
+      </section>
+      <p className="muted">统计时间：{formatDateTime(stats.generatedAt)}</p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>成员</th>
+              <th>登记 Bug</th>
+              <th>修复 Bug</th>
+              <th>平均修复(h)</th>
+              <th>登记功能</th>
+              <th>完成功能</th>
+              <th>负责 Bug</th>
+              <th>负责功能</th>
+              <th>待办负责项</th>
+              <th>负载指数</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.people.map((row) => (
+              <tr key={row.user.id}>
+                <td data-label="成员">{row.user.displayName}</td>
+                <td data-label="登记 Bug">{row.bugsCreated}</td>
+                <td data-label="修复 Bug">{row.bugsFixed}</td>
+                <td data-label="平均修复">{row.avgFixHours != null ? row.avgFixHours.toFixed(1) : '-'}</td>
+                <td data-label="登记功能">{row.featuresCreated}</td>
+                <td data-label="完成功能">{row.featuresCompleted}</td>
+                <td data-label="负责 Bug">{row.bugsOwned}</td>
+                <td data-label="负责功能">{row.featuresOwned}</td>
+                <td data-label="待办负责项">{row.openBugsOwned + row.openFeaturesOwned}</td>
+                <td data-label="负载指数">{row.workloadScore.toFixed(1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function PersonnelPanel({
+  kind,
+  entityId,
+  owner,
+  relatedUsers,
+  disabled,
+  onUpdated
+}: {
+  kind: 'bug' | 'feature';
+  entityId: string;
+  owner: AssignableUser | null;
+  relatedUsers: AssignableUser[];
+  disabled?: boolean;
+  onUpdated: () => Promise<void>;
+}) {
+  const { user } = useAuth();
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  const [delegateOwnerId, setDelegateOwnerId] = useState('');
+  const [selectedRelatedIds, setSelectedRelatedIds] = useState<string[]>([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const joinPermission = kind === 'bug' ? 'MARK_BUG_FIXED' : 'UPDATE_FEATURE';
+  const isOwner = owner?.id === user?.id;
+  const isRelated = relatedUsers.some((person) => person.id === user?.id);
+  const canJoin = !disabled && hasPermission(user, joinPermission) && !isOwner && !isRelated;
+  const canClaimOwner = !disabled && hasPermission(user, 'BECOME_ITEM_OWNER') && !isOwner;
+  const canDelegateOwner = !disabled && hasPermission(user, 'DELEGATE_ITEM_OWNER');
+  const canDelegateRelated = !disabled && hasPermission(user, 'DELEGATE_ITEM_RELATED');
+  const canRevokeOwner =
+    !disabled &&
+    Boolean(owner) &&
+    (canDelegateOwner || (isOwner && hasPermission(user, 'BECOME_ITEM_OWNER')));
+  const canLeaveRelated = !disabled && isRelated;
+
+  useEffect(() => {
+    if (!canDelegateOwner && !canDelegateRelated) {
+      return;
+    }
+    void api<AssignableUser[]>('/auth/assignable-users').then(setAssignableUsers).catch(() => undefined);
+  }, [canDelegateOwner, canDelegateRelated]);
+
+  async function run(action: () => Promise<unknown>) {
+    setError('');
+    setBusy(true);
+    try {
+      await action();
+      await onUpdated();
+      setSelectedRelatedIds([]);
+      setDelegateOwnerId('');
+    } catch (actionError) {
+      setError(readError(actionError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleRelatedSelection(userId: string) {
+    setSelectedRelatedIds((current) =>
+      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId]
+    );
+  }
+
+  return (
+    <div className="info-block personnel-panel">
+      <strong>负责人与相关人员</strong>
+      <p>负责人：{owner?.displayName ?? '未指定'}</p>
+      <div className="related-user-chips">
+        {relatedUsers.length === 0 && <span className="muted">暂无相关人员</span>}
+        {relatedUsers.map((person) => (
+          <span key={person.id} className="personnel-chip">{person.displayName}</span>
+        ))}
+      </div>
+      {!disabled &&
+        (canJoin ||
+          canClaimOwner ||
+          canDelegateOwner ||
+          canDelegateRelated ||
+          canRevokeOwner ||
+          canLeaveRelated) && (
+        <div className="personnel-actions">
+          {canJoin && (
+            <button
+              className="ghost compact"
+              type="button"
+              disabled={busy}
+              onClick={() => void run(() => (kind === 'bug' ? joinBugPersonnel(entityId) : joinFeaturePersonnel(entityId)))}
+            >
+              <UserCheck size={16} />加入相关人
+            </button>
+          )}
+          {canClaimOwner && (
+            <button
+              className="ghost compact"
+              type="button"
+              disabled={busy}
+              onClick={() => void run(() => (kind === 'bug' ? claimBugOwner(entityId) : claimFeatureOwner(entityId)))}
+            >
+              <Shield size={16} />我来负责
+            </button>
+          )}
+          {canRevokeOwner && (
+            <button
+              className="ghost compact"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(() =>
+                  kind === 'bug'
+                    ? patchBugPersonnel(entityId, { ownerId: null })
+                    : patchFeaturePersonnel(entityId, { ownerId: null })
+                )
+              }
+            >
+              撤销负责人
+            </button>
+          )}
+          {canLeaveRelated && (
+            <button
+              className="ghost compact"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(() =>
+                  kind === 'bug'
+                    ? patchBugPersonnel(entityId, { removeRelatedUserIds: [user!.id] })
+                    : patchFeaturePersonnel(entityId, { removeRelatedUserIds: [user!.id] })
+                )
+              }
+            >
+              退出相关人
+            </button>
+          )}
+          {canDelegateOwner && (
+            <label className="personnel-delegate">
+              委派负责人
+              <div className="personnel-delegate-row">
+                <select value={delegateOwnerId} onChange={(event) => setDelegateOwnerId(event.target.value)}>
+                  <option value="">选择用户</option>
+                  {assignableUsers.map((person) => (
+                    <option key={person.id} value={person.id}>{person.displayName}</option>
+                  ))}
+                </select>
+                <button
+                  className="ghost compact"
+                  type="button"
+                  disabled={busy || !delegateOwnerId}
+                  onClick={() =>
+                    void run(() =>
+                      kind === 'bug'
+                        ? patchBugPersonnel(entityId, { ownerId: delegateOwnerId })
+                        : patchFeaturePersonnel(entityId, { ownerId: delegateOwnerId })
+                    )
+                  }
+                >
+                  确认
+                </button>
+              </div>
+            </label>
+          )}
+          {canDelegateRelated && (
+            <div className="personnel-delegate">
+              <span>添加相关人</span>
+              <div className="related-user-chips">
+                {assignableUsers
+                  .filter((person) => person.id !== owner?.id && !relatedUsers.some((related) => related.id === person.id))
+                  .map((person) => (
+                    <label key={person.id} className="chip-toggle">
+                      <input
+                        type="checkbox"
+                        checked={selectedRelatedIds.includes(person.id)}
+                        onChange={() => toggleRelatedSelection(person.id)}
+                      />
+                      <span>{person.displayName}</span>
+                    </label>
+                  ))}
+              </div>
+              <div className="personnel-delegate-row">
+                <button
+                  className="ghost compact"
+                  type="button"
+                  disabled={busy || selectedRelatedIds.length === 0}
+                  onClick={() =>
+                    void run(() =>
+                      kind === 'bug'
+                        ? patchBugPersonnel(entityId, { addRelatedUserIds: selectedRelatedIds })
+                        : patchFeaturePersonnel(entityId, { addRelatedUserIds: selectedRelatedIds })
+                    )
+                  }
+                >
+                  添加选中
+                </button>
+                {relatedUsers.length > 0 && (
+                  <select
+                    defaultValue=""
+                    onChange={(event) => {
+                      const userId = event.target.value;
+                      if (!userId) return;
+                      void run(() =>
+                        kind === 'bug'
+                          ? patchBugPersonnel(entityId, { removeRelatedUserIds: [userId] })
+                          : patchFeaturePersonnel(entityId, { removeRelatedUserIds: [userId] })
+                      );
+                      event.currentTarget.value = '';
+                    }}
+                  >
+                    <option value="">移除相关人</option>
+                    {relatedUsers.map((person) => (
+                      <option key={person.id} value={person.id}>{person.displayName}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+function FeatureStatusBadge({ status }: { status: FeatureStatus }) {
+  const label = { PLANNED: '规划中', IN_PROGRESS: '进行中', DONE: '已完成' }[status];
+  return <span className={`status-badge feature-${status.toLowerCase()}`}>{label}</span>;
 }
 
 function AdminPage() {
@@ -1833,7 +2491,13 @@ function activityTitle(activity: BugActivity) {
     RUNTIME_INFO_ADDED: '添加运行信息',
     RUNTIME_INFO_UPDATED: '更新运行信息',
     RUNTIME_INFO_REMOVED: '删除运行信息',
-    RETEST_RECORDED: '提交复测'
+    RETEST_RECORDED: '提交复测',
+    OWNER_CLAIMED: '认领负责人',
+    OWNER_DELEGATED: '委派负责人',
+    OWNER_REVOKED: '撤销负责人',
+    RELATED_JOINED: '加入相关人',
+    RELATED_ADDED: '添加相关人',
+    RELATED_REMOVED: '移除相关人'
   }[activity.type];
 }
 
@@ -1898,6 +2562,23 @@ function describeActivityContext(activity: BugActivity | null) {
         .join('，');
     case 'DELETED':
       return get('deletedBy') ? `执行人：${get('deletedBy')}` : '';
+    case 'OWNER_CLAIMED':
+    case 'OWNER_DELEGATED':
+    case 'OWNER_REVOKED': {
+      const previous = get('previousOwnerName');
+      const next = get('newOwnerName');
+      if (activity.type === 'OWNER_REVOKED') {
+        return previous ? `原负责人：${previous}` : '';
+      }
+      if (activity.type === 'OWNER_CLAIMED') {
+        return next ? `负责人：${next}` : '';
+      }
+      return [previous ? `原负责人：${previous}` : '', next ? `新负责人：${next}` : ''].filter(Boolean).join('，');
+    }
+    case 'RELATED_JOINED':
+    case 'RELATED_ADDED':
+    case 'RELATED_REMOVED':
+      return get('userNames') ? `相关人员：${get('userNames')}` : '';
     default:
       return '';
   }

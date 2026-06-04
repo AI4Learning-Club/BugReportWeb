@@ -2,10 +2,14 @@ import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { RequestWithUser } from './auth.types';
+import { UsersService } from '../users/users.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly usersService: UsersService
+  ) {}
 
   @Public()
   @Post('register')
@@ -22,5 +26,10 @@ export class AuthController {
   @Get('me')
   me(@Req() request: RequestWithUser) {
     return this.authService.me(request.user.id);
+  }
+
+  @Get('assignable-users')
+  assignableUsers() {
+    return this.usersService.listAssignable();
   }
 }

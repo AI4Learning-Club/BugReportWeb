@@ -16,6 +16,11 @@ import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { AuthUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  bugPersonnelInclude,
+  buildParticipantFilter,
+  toPersonnelResponse
+} from '../personnel/personnel.util';
 
 type BugBody = {
   systemId?: string;
@@ -56,7 +61,12 @@ export class BugsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(
-    query: { systemId?: string; status?: BugStatus; deleted?: DeletedFilter },
+    query: {
+      systemId?: string;
+      status?: BugStatus;
+      deleted?: DeletedFilter;
+      participantUserId?: string;
+    },
     user: AuthUser
   ) {
     const deleted = this.normalizeDeletedFilter(query.deleted);
@@ -65,7 +75,7 @@ export class BugsService {
     }
 
     const bugs = await this.prisma.bug.findMany({
-      where: this.buildBugWhere(query.systemId, query.status, deleted),
+      where: this.buildBugWhere(query, deleted),
       include: this.bugInclude(),
       orderBy: deleted === 'only' ? { deletedAt: 'desc' } : { createdAt: 'desc' }
     });
@@ -137,6 +147,7 @@ export class BugsService {
     }
 
     const changes = this.diffFields(bug, data);
+
     if (changes.length === 0) {
       return this.detail(id, user);
     }
@@ -501,6 +512,7 @@ export class BugsService {
       creator: actorSelect,
       fixedBy: actorSelect,
       deletedBy: actorSelect,
+      ...bugPersonnelInclude,
       screenshots: true,
       runtimeInfos: detail
         ? {
@@ -532,9 +544,12 @@ export class BugsService {
     const notAppearedCount = bug.retests.filter(
       (retest: { result: RetestResult }) => retest.result === RetestResult.NOT_APPEARED
     ).length;
+    const personnel = toPersonnelResponse(bug);
 
     return {
       ...bug,
+      owner: personnel.owner,
+      relatedUsers: personnel.relatedUsers,
       screenshotCount: bug.screenshots.length,
       runtimeInfoCount: bug.runtimeInfos.length,
       appearedCount,
@@ -594,10 +609,16 @@ export class BugsService {
     return deleted;
   }
 
-  private buildBugWhere(systemId: string | undefined, status: BugStatus | undefined, deleted: DeletedFilter) {
+  private buildBugWhere(
+    query: { systemId?: string; status?: BugStatus; participantUserId?: string },
+    deleted: DeletedFilter
+  ): Prisma.BugWhereInput {
     return {
-      systemId,
-      status,
+      systemId: query.systemId,
+      status: query.status,
+      ...(query.participantUserId
+        ? (buildParticipantFilter(query.participantUserId, 'bug') as Prisma.BugWhereInput)
+        : {}),
       ...(deleted === 'active' ? { deletedAt: null } : {}),
       ...(deleted === 'only' ? { deletedAt: { not: null } } : {})
     };

@@ -8,11 +8,21 @@ async function main() {
   const normalRole = await prisma.role.upsert({
     where: { name: '普通用户' },
     update: {
-      permissions: [Permission.CREATE_BUG, Permission.RETEST_BUG, Permission.ADD_BUG_EVIDENCE]
+      permissions: [
+        Permission.CREATE_BUG,
+        Permission.RETEST_BUG,
+        Permission.ADD_BUG_EVIDENCE,
+        Permission.CREATE_FEATURE
+      ]
     },
     create: {
       name: '普通用户',
-      permissions: [Permission.CREATE_BUG, Permission.RETEST_BUG, Permission.ADD_BUG_EVIDENCE]
+      permissions: [
+        Permission.CREATE_BUG,
+        Permission.RETEST_BUG,
+        Permission.ADD_BUG_EVIDENCE,
+        Permission.CREATE_FEATURE
+      ]
     }
   });
 
@@ -23,7 +33,9 @@ async function main() {
         Permission.CREATE_BUG,
         Permission.RETEST_BUG,
         Permission.ADD_BUG_EVIDENCE,
-        Permission.MARK_BUG_FIXED
+        Permission.MARK_BUG_FIXED,
+        Permission.CREATE_FEATURE,
+        Permission.UPDATE_FEATURE
       ]
     },
     create: {
@@ -32,7 +44,48 @@ async function main() {
         Permission.CREATE_BUG,
         Permission.RETEST_BUG,
         Permission.ADD_BUG_EVIDENCE,
-        Permission.MARK_BUG_FIXED
+        Permission.MARK_BUG_FIXED,
+        Permission.CREATE_FEATURE,
+        Permission.UPDATE_FEATURE
+      ]
+    }
+  });
+
+  await prisma.role.upsert({
+    where: { name: '管理者' },
+    update: {
+      permissions: [
+        Permission.CREATE_BUG,
+        Permission.RETEST_BUG,
+        Permission.ADD_BUG_EVIDENCE,
+        Permission.MARK_BUG_FIXED,
+        Permission.DELETE_BUG,
+        Permission.CREATE_FEATURE,
+        Permission.UPDATE_FEATURE,
+        Permission.DELETE_FEATURE,
+        Permission.VIEW_STATS,
+        Permission.MANAGE_SYSTEMS,
+        Permission.BECOME_ITEM_OWNER,
+        Permission.DELEGATE_ITEM_RELATED,
+        Permission.DELEGATE_ITEM_OWNER
+      ]
+    },
+    create: {
+      name: '管理者',
+      permissions: [
+        Permission.CREATE_BUG,
+        Permission.RETEST_BUG,
+        Permission.ADD_BUG_EVIDENCE,
+        Permission.MARK_BUG_FIXED,
+        Permission.DELETE_BUG,
+        Permission.CREATE_FEATURE,
+        Permission.UPDATE_FEATURE,
+        Permission.DELETE_FEATURE,
+        Permission.VIEW_STATS,
+        Permission.MANAGE_SYSTEMS,
+        Permission.BECOME_ITEM_OWNER,
+        Permission.DELEGATE_ITEM_RELATED,
+        Permission.DELEGATE_ITEM_OWNER
       ]
     }
   });

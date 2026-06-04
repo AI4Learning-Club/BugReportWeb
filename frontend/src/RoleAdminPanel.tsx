@@ -91,6 +91,46 @@ const PERMISSION_UI_META: Record<Permission, Omit<PermissionView, keyof Permissi
     requiresApproval: true,
     dataScope: '当前角色可访问的 bug 活动记录'
   },
+  CREATE_FEATURE: {
+    scope: 'user',
+    scopeLabel: '用户身份权限',
+    scopeToken: 'user_access_token',
+    module: '功能管理',
+    category: '提报与录入',
+    permissionType: '写入',
+    requiresApproval: false,
+    dataScope: '当前用户可登记的功能'
+  },
+  UPDATE_FEATURE: {
+    scope: 'user',
+    scopeLabel: '用户身份权限',
+    scopeToken: 'user_access_token',
+    module: '功能管理',
+    category: '流转与维护',
+    permissionType: '写入',
+    requiresApproval: false,
+    dataScope: '当前用户可编辑的功能'
+  },
+  DELETE_FEATURE: {
+    scope: 'user',
+    scopeLabel: '用户身份权限',
+    scopeToken: 'user_access_token',
+    module: '功能管理',
+    category: '流转与步骤',
+    permissionType: '管理',
+    requiresApproval: true,
+    dataScope: '当前用户可删除的功能'
+  },
+  VIEW_STATS: {
+    scope: 'tenant',
+    scopeLabel: '应用身份权限',
+    scopeToken: 'tenant_access_token',
+    module: '数据分析',
+    category: 'KPI 统计',
+    permissionType: '读取',
+    requiresApproval: true,
+    dataScope: '全员效率与任务汇总指标'
+  },
   MANAGE_SYSTEMS: {
     scope: 'tenant',
     scopeLabel: '应用身份权限',
@@ -120,6 +160,36 @@ const PERMISSION_UI_META: Record<Permission, Omit<PermissionView, keyof Permissi
     permissionType: '管理',
     requiresApproval: true,
     dataScope: '全部用户账号和审批流'
+  },
+  BECOME_ITEM_OWNER: {
+    scope: 'user',
+    scopeLabel: '用户身份权限',
+    scopeToken: 'user_access_token',
+    module: '人员分配',
+    category: '负责人',
+    permissionType: '写入',
+    requiresApproval: true,
+    dataScope: '当前用户可自荐成为负责人的 Bug/功能'
+  },
+  DELEGATE_ITEM_RELATED: {
+    scope: 'user',
+    scopeLabel: '用户身份权限',
+    scopeToken: 'user_access_token',
+    module: '人员分配',
+    category: '相关人员',
+    permissionType: '写入',
+    requiresApproval: true,
+    dataScope: '当前用户可委派或移除 Bug/功能的相关人员'
+  },
+  DELEGATE_ITEM_OWNER: {
+    scope: 'user',
+    scopeLabel: '用户身份权限',
+    scopeToken: 'user_access_token',
+    module: '人员分配',
+    category: '负责人',
+    permissionType: '管理',
+    requiresApproval: true,
+    dataScope: '当前用户可委派他人成为 Bug/功能的负责人'
   }
 };
 

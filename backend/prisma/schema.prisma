@@ -14,9 +14,16 @@ enum Permission {
   ADD_BUG_EVIDENCE
   DELETE_BUG
   DELETE_BUG_ACTIVITY
+  CREATE_FEATURE
+  UPDATE_FEATURE
+  DELETE_FEATURE
+  VIEW_STATS
   MANAGE_SYSTEMS
   MANAGE_ROLES
   MANAGE_USERS
+  BECOME_ITEM_OWNER
+  DELEGATE_ITEM_RELATED
+  DELEGATE_ITEM_OWNER
 }
 
 enum UserStatus {
@@ -41,6 +48,12 @@ enum BugActivityType {
   RUNTIME_INFO_UPDATED
   RUNTIME_INFO_REMOVED
   RETEST_RECORDED
+  OWNER_CLAIMED
+  OWNER_DELEGATED
+  OWNER_REVOKED
+  RELATED_JOINED
+  RELATED_ADDED
+  RELATED_REMOVED
 }
 
 enum RetestResult {
@@ -55,6 +68,12 @@ enum Severity {
   CRITICAL
 }
 
+enum FeatureStatus {
+  PLANNED
+  IN_PROGRESS
+  DONE
+}
+
 model Role {
   id          String       @id @default(cuid())
   name        String       @unique
@@ -65,23 +84,30 @@ model Role {
 }
 
 model User {
-  id            String           @id @default(cuid())
-  username      String           @unique
-  passwordHash  String
-  displayName   String
-  status        UserStatus       @default(PENDING)
-  roleId        String?
-  role          Role?            @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  isAdmin       Boolean          @default(false)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  createdBugs   Bug[]            @relation("BugCreator")
-  fixedBugs     Bug[]            @relation("BugFixer")
-  deletedBugs   Bug[]            @relation("BugDeleter")
-  screenshots   BugScreenshot[]
-  runtimeInfos  BugRuntimeInfo[]
-  retests       BugRetest[]
-  bugActivities BugActivity[]
+  id                   String               @id @default(cuid())
+  username             String               @unique
+  passwordHash         String
+  displayName          String
+  status               UserStatus           @default(PENDING)
+  roleId               String?
+  role                 Role?                @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  isAdmin              Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  createdBugs          Bug[]                @relation("BugCreator")
+  ownedBugs            Bug[]                @relation("BugOwner")
+  bugRelations         BugRelatedUser[]
+  fixedBugs            Bug[]                @relation("BugFixer")
+  deletedBugs          Bug[]                @relation("BugDeleter")
+  screenshots          BugScreenshot[]
+  runtimeInfos         BugRuntimeInfo[]
+  retests              BugRetest[]
+  bugActivities        BugActivity[]
+  createdFeatures      Feature[]            @relation("FeatureCreator")
+  ownedFeatures        Feature[]            @relation("FeatureOwner")
+  featureRelations     FeatureRelatedUser[]
+  completedFeatures    Feature[]            @relation("FeatureCompleter")
+  deletedFeatures      Feature[]            @relation("FeatureDeleter")
 }
 
 model TrackedSystem {
@@ -94,6 +120,7 @@ model TrackedSystem {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   bugs        Bug[]
+  features    Feature[]
 }
 
 model Bug {
@@ -102,6 +129,8 @@ model Bug {
   system       TrackedSystem    @relation(fields: [systemId], references: [id])
   creatorId    String
   creator      User             @relation("BugCreator", fields: [creatorId], references: [id])
+  ownerId      String?
+  owner        User?            @relation("BugOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   title        String
   description  String
   severity     Severity         @default(MEDIUM)
@@ -123,12 +152,24 @@ model Bug {
   runtimeInfos BugRuntimeInfo[]
   retests      BugRetest[]
   activities   BugActivity[]
+  relatedUsers BugRelatedUser[]
 
   @@index([systemId])
   @@index([creatorId])
+  @@index([ownerId])
   @@index([status])
   @@index([deletedAt])
   @@index([deletedById])
+}
+
+model BugRelatedUser {
+  bugId  String
+  bug    Bug    @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([bugId, userId])
+  @@index([userId])
 }
 
 model BugActivity {
@@ -195,4 +236,44 @@ model BugRetest {
 
   @@unique([bugId, userId])
   @@index([bugId])
+}
+
+model Feature {
+  id            String               @id @default(cuid())
+  systemId      String
+  system        TrackedSystem        @relation(fields: [systemId], references: [id])
+  creatorId     String
+  creator       User                 @relation("FeatureCreator", fields: [creatorId], references: [id])
+  ownerId       String?
+  owner         User?                @relation("FeatureOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  title         String
+  description   String
+  status        FeatureStatus        @default(PLANNED)
+  priority      Severity             @default(MEDIUM)
+  completedAt   DateTime?
+  completedById String?
+  completedBy   User?                @relation("FeatureCompleter", fields: [completedById], references: [id])
+  deletedAt     DateTime?
+  deletedById   String?
+  deletedBy     User?                @relation("FeatureDeleter", fields: [deletedById], references: [id])
+  deleteReason  String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  relatedUsers  FeatureRelatedUser[]
+
+  @@index([systemId])
+  @@index([creatorId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model FeatureRelatedUser {
+  featureId String
+  feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([featureId, userId])
+  @@index([userId])
 }

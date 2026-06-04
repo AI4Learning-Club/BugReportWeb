@@ -24,6 +24,14 @@ export class UsersService {
     });
   }
 
+  listAssignable() {
+    return this.prisma.user.findMany({
+      where: { status: UserStatus.ACTIVE },
+      select: { id: true, username: true, displayName: true },
+      orderBy: { displayName: 'asc' }
+    });
+  }
+
   async update(id: string, body: { displayName?: string }) {
     await this.ensureUser(id);
     const displayName = body.displayName?.trim();

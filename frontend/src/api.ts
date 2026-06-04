@@ -28,9 +28,16 @@ export type Permission =
   | 'ADD_BUG_EVIDENCE'
   | 'DELETE_BUG'
   | 'DELETE_BUG_ACTIVITY'
+  | 'CREATE_FEATURE'
+  | 'UPDATE_FEATURE'
+  | 'DELETE_FEATURE'
+  | 'VIEW_STATS'
   | 'MANAGE_SYSTEMS'
   | 'MANAGE_ROLES'
-  | 'MANAGE_USERS';
+  | 'MANAGE_USERS'
+  | 'BECOME_ITEM_OWNER'
+  | 'DELEGATE_ITEM_RELATED'
+  | 'DELEGATE_ITEM_OWNER';
 
 export type Role = {
   id: string;
@@ -51,6 +58,8 @@ export type User = {
   role: Role | null;
 };
 
+export type AssignableUser = Pick<User, 'id' | 'username' | 'displayName'>;
+
 export type TrackedSystem = {
   id: string;
   name: string;
@@ -61,6 +70,13 @@ export type TrackedSystem = {
 };
 
 export type BugStatus = 'OPEN' | 'FIXED';
+export type FeatureStatus = 'PLANNED' | 'IN_PROGRESS' | 'DONE';
+
+export type PersonnelPatchBody = {
+  ownerId?: string | null;
+  addRelatedUserIds?: string[];
+  removeRelatedUserIds?: string[];
+};
 
 export type BugActivityChange = {
   field: string;
@@ -82,14 +98,20 @@ export type BugActivity = {
     | 'RUNTIME_INFO_ADDED'
     | 'RUNTIME_INFO_UPDATED'
     | 'RUNTIME_INFO_REMOVED'
-    | 'RETEST_RECORDED';
+    | 'RETEST_RECORDED'
+    | 'OWNER_CLAIMED'
+    | 'OWNER_DELEGATED'
+    | 'OWNER_REVOKED'
+    | 'RELATED_JOINED'
+    | 'RELATED_ADDED'
+    | 'RELATED_REMOVED';
   note: string | null;
   fromStatus: BugStatus | null;
   toStatus: BugStatus | null;
   changes: BugActivityChange[] | null;
   context: BugActivityContext | null;
   createdAt: string;
-  actor: Pick<User, 'id' | 'username' | 'displayName'>;
+  actor: AssignableUser;
 };
 
 export type BugItem = {
@@ -103,10 +125,12 @@ export type BugItem = {
   expected: string | null;
   actual: string | null;
   system: TrackedSystem;
-  creator: Pick<User, 'id' | 'username' | 'displayName'>;
-  fixedBy: Pick<User, 'id' | 'username' | 'displayName'> | null;
+  creator: AssignableUser;
+  owner: AssignableUser | null;
+  relatedUsers: AssignableUser[];
+  fixedBy: AssignableUser | null;
   fixedAt: string | null;
-  deletedBy: Pick<User, 'id' | 'username' | 'displayName'> | null;
+  deletedBy: AssignableUser | null;
   deletedAt: string | null;
   deleteReason: string | null;
   screenshots: Screenshot[];
@@ -124,6 +148,25 @@ export type BugDetail = BugItem & {
   activities: BugActivity[];
 };
 
+export type FeatureItem = {
+  id: string;
+  title: string;
+  description: string;
+  status: FeatureStatus;
+  priority: BugItem['severity'];
+  system: TrackedSystem;
+  creator: AssignableUser;
+  owner: AssignableUser | null;
+  relatedUsers: AssignableUser[];
+  completedBy: AssignableUser | null;
+  completedAt: string | null;
+  deletedBy: AssignableUser | null;
+  deletedAt: string | null;
+  deleteReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Screenshot = {
   id: string;
   path: string;
@@ -138,7 +181,7 @@ export type RuntimeInfo = {
   environment: string | null;
   logText: string;
   authorId: string;
-  author?: Pick<User, 'id' | 'username' | 'displayName'>;
+  author?: AssignableUser;
 };
 
 export type Retest = {
@@ -146,6 +189,34 @@ export type Retest = {
   userId: string;
   result: 'APPEARED' | 'NOT_APPEARED';
   note: string | null;
+};
+
+export type KpiPersonStats = {
+  user: AssignableUser;
+  bugsCreated: number;
+  bugsFixed: number;
+  avgFixHours: number | null;
+  featuresCreated: number;
+  featuresCompleted: number;
+  retestsSubmitted: number;
+  retestsAppeared: number;
+  bugsOwned: number;
+  featuresOwned: number;
+  openBugsOwned: number;
+  openFeaturesOwned: number;
+  workloadScore: number;
+};
+
+export type KpiOverview = {
+  generatedAt: string;
+  totals: {
+    activeUsers: number;
+    openBugs: number;
+    fixedBugs: number;
+    activeFeatures: number;
+    doneFeatures: number;
+  };
+  people: KpiPersonStats[];
 };
 
 export type PermissionDefinition = {
@@ -172,9 +243,16 @@ export const ALL_PERMISSIONS: Permission[] = [
   'ADD_BUG_EVIDENCE',
   'DELETE_BUG',
   'DELETE_BUG_ACTIVITY',
+  'CREATE_FEATURE',
+  'UPDATE_FEATURE',
+  'DELETE_FEATURE',
+  'VIEW_STATS',
   'MANAGE_SYSTEMS',
   'MANAGE_ROLES',
-  'MANAGE_USERS'
+  'MANAGE_USERS',
+  'BECOME_ITEM_OWNER',
+  'DELEGATE_ITEM_RELATED',
+  'DELEGATE_ITEM_OWNER'
 ];
 
 export const PERMISSION_LABELS: Record<Permission, string> = {
@@ -184,9 +262,16 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   ADD_BUG_EVIDENCE: '补充证据',
   DELETE_BUG: '删除 bug',
   DELETE_BUG_ACTIVITY: '删除活动记录',
+  CREATE_FEATURE: '登记功能',
+  UPDATE_FEATURE: '更新功能',
+  DELETE_FEATURE: '删除功能',
+  VIEW_STATS: '查看 KPI 统计',
   MANAGE_SYSTEMS: '系统管理',
   MANAGE_ROLES: '角色管理',
-  MANAGE_USERS: '用户管理'
+  MANAGE_USERS: '用户管理',
+  BECOME_ITEM_OWNER: '成为负责人',
+  DELEGATE_ITEM_RELATED: '委派相关人',
+  DELEGATE_ITEM_OWNER: '委派负责人'
 };
 
 export async function api<T>(path: string, options: RequestInit = {}) {
@@ -216,4 +301,34 @@ export async function api<T>(path: string, options: RequestInit = {}) {
 
 export function hasPermission(user: User | null, permission: Permission) {
   return Boolean(user?.isAdmin || user?.role?.permissions.includes(permission));
+}
+
+export function joinBugPersonnel(bugId: string) {
+  return api<BugDetail>(`/bugs/${bugId}/personnel/join`, { method: 'POST' });
+}
+
+export function claimBugOwner(bugId: string) {
+  return api<BugDetail>(`/bugs/${bugId}/personnel/claim-owner`, { method: 'POST' });
+}
+
+export function patchBugPersonnel(bugId: string, body: PersonnelPatchBody) {
+  return api<BugDetail>(`/bugs/${bugId}/personnel`, {
+    method: 'PATCH',
+    body: JSON.stringify(body)
+  });
+}
+
+export function joinFeaturePersonnel(featureId: string) {
+  return api<FeatureItem>(`/features/${featureId}/personnel/join`, { method: 'POST' });
+}
+
+export function claimFeatureOwner(featureId: string) {
+  return api<FeatureItem>(`/features/${featureId}/personnel/claim-owner`, { method: 'POST' });
+}
+
+export function patchFeaturePersonnel(featureId: string, body: PersonnelPatchBody) {
+  return api<FeatureItem>(`/features/${featureId}/personnel`, {
+    method: 'PATCH',
+    body: JSON.stringify(body)
+  });
 }

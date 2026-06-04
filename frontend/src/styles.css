@@ -2266,6 +2266,110 @@ tbody tr:hover td {
   color: #718191;
 }
 
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.stat-card {
+  background: #fff;
+  border: 1px solid #dfe7ee;
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat-card strong {
+  font-size: 28px;
+  color: #112033;
+}
+
+.stat-card span {
+  color: #718191;
+  font-size: 14px;
+}
+
+.personnel-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.personnel-actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.personnel-delegate {
+  display: grid;
+  gap: 8px;
+}
+
+.personnel-delegate-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.personnel-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #dfe7ee;
+  background: #fff;
+  font-size: 13px;
+}
+
+.related-user-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #dfe7ee;
+  background: #fff;
+  font-size: 13px;
+}
+
+.chip-toggle input {
+  margin: 0;
+}
+
+.status-badge.feature-planned {
+  background: #eef3ff;
+  color: #245dff;
+}
+
+.status-badge.feature-in_progress {
+  background: #fff6e8;
+  color: #b76a00;
+}
+
+.status-badge.feature-done {
+  background: #edf9f0;
+  color: #1f7a3f;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

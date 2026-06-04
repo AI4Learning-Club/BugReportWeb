@@ -7,6 +7,10 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { PermissionsGuard } from './auth/permissions.guard';
 import { BugsController } from './bugs/bugs.controller';
 import { BugsService } from './bugs/bugs.service';
+import { FeaturesController } from './features/features.controller';
+import { FeaturesService } from './features/features.service';
+import { StatsController } from './stats/stats.controller';
+import { StatsService } from './stats/stats.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { RolesController } from './roles/roles.controller';
 import { RolesService } from './roles/roles.service';
@@ -14,6 +18,7 @@ import { SystemsController } from './systems/systems.controller';
 import { SystemsService } from './systems/systems.service';
 import { UsersController } from './users/users.controller';
 import { UsersService } from './users/users.service';
+import { PersonnelService } from './personnel/personnel.service';
 
 @Module({
   imports: [
@@ -27,6 +32,8 @@ import { UsersService } from './users/users.service';
   controllers: [
     AuthController,
     BugsController,
+    FeaturesController,
+    StatsController,
     RolesController,
     SystemsController,
     UsersController
@@ -34,6 +41,9 @@ import { UsersService } from './users/users.service';
   providers: [
     AuthService,
     BugsService,
+    FeaturesService,
+    StatsService,
+    PersonnelService,
     RolesService,
     SystemsService,
     UsersService,

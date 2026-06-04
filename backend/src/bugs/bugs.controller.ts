@@ -19,6 +19,8 @@ import { mkdirSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { RequestWithUser } from '../auth/auth.types';
 import { Permissions } from '../auth/permissions.decorator';
+import { PersonnelPatchBody } from '../personnel/personnel.types';
+import { PersonnelService } from '../personnel/personnel.service';
 import { BugsService } from './bugs.service';
 
 const screenshotUploadMaxSizeBytes = 50 * 1024 * 1024;
@@ -44,16 +46,20 @@ const screenshotUpload = FileInterceptor('file', {
 
 @Controller('bugs')
 export class BugsController {
-  constructor(private readonly bugsService: BugsService) {}
+  constructor(
+    private readonly bugsService: BugsService,
+    private readonly personnelService: PersonnelService
+  ) {}
 
   @Get()
   list(
     @Query('systemId') systemId: string | undefined,
     @Query('status') status: BugStatus | undefined,
     @Query('deleted') deleted: 'active' | 'only' | 'all' | undefined,
+    @Query('participantUserId') participantUserId: string | undefined,
     @Req() request: RequestWithUser
   ) {
-    return this.bugsService.list({ systemId, status, deleted }, request.user);
+    return this.bugsService.list({ systemId, status, deleted, participantUserId }, request.user);
   }
 
   @Get(':id')
@@ -84,6 +90,30 @@ export class BugsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() body: Record<string, unknown>, @Req() request: RequestWithUser) {
     return this.bugsService.update(id, body as never, request.user);
+  }
+
+  @Post(':id/personnel/join')
+  @Permissions(Permission.MARK_BUG_FIXED)
+  async joinPersonnel(@Param('id') id: string, @Req() request: RequestWithUser) {
+    await this.personnelService.joinBugRelated(id, request.user);
+    return this.bugsService.detail(id, request.user);
+  }
+
+  @Post(':id/personnel/claim-owner')
+  @Permissions(Permission.BECOME_ITEM_OWNER)
+  async claimOwner(@Param('id') id: string, @Req() request: RequestWithUser) {
+    await this.personnelService.claimBugOwner(id, request.user);
+    return this.bugsService.detail(id, request.user);
+  }
+
+  @Patch(':id/personnel')
+  async patchPersonnel(
+    @Param('id') id: string,
+    @Body() body: PersonnelPatchBody,
+    @Req() request: RequestWithUser
+  ) {
+    await this.personnelService.patchBugPersonnel(id, body, request.user);
+    return this.bugsService.detail(id, request.user);
   }
 
   @Post(':id/delete')
