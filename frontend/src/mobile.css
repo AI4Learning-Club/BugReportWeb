@@ -118,6 +118,12 @@
     display: none;
   }
 
+  .app-shell:has(.permission-modal-backdrop),
+  .app-shell:has(.bug-delete-modal-backdrop) {
+    max-height: var(--app-viewport-height);
+    overflow: hidden;
+  }
+
   .content {
     flex: 1 1 auto;
     min-height: 0;
@@ -575,7 +581,11 @@
   .permission-modal-backdrop {
     align-items: end;
     justify-items: center;
-    padding: 12px 10px max(12px, env(safe-area-inset-bottom));
+    height: var(--app-viewport-height);
+    min-height: var(--app-viewport-height);
+    padding: 12px 10px calc(max(12px, env(safe-area-inset-bottom)) + var(--app-viewport-bottom-offset));
+    overflow: hidden;
+    overscroll-behavior: contain;
   }
 
   .bug-delete-modal,
@@ -586,6 +596,11 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transform: translateZ(0);
+  }
+
+  .permission-modal {
+    height: min(760px, calc(var(--app-viewport-height) - 24px));
   }
 
   .bug-delete-modal-header,
@@ -594,6 +609,21 @@
     position: sticky;
     top: 0;
     z-index: 2;
+    background: #fff;
+  }
+
+  .permission-modal-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .grant-modal-scroll,
+  .json-modal-scroll {
+    display: flex;
+    flex-direction: column;
   }
 
   .bug-delete-modal-body {
@@ -776,10 +806,12 @@
 
   .grant-tabs,
   .json-tabs {
+    flex: 0 0 auto;
     display: flex;
     gap: 6px;
     padding: 10px 16px;
     overflow-x: auto;
+    overflow-y: hidden;
     border-bottom: 1px solid #e6edf3;
     scrollbar-width: none;
   }
@@ -818,6 +850,8 @@
     min-height: 0;
     padding: 12px 16px;
     overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .grant-category-list {
@@ -840,6 +874,7 @@
   }
 
   .grant-list-wrap {
+    min-height: 0;
     padding-top: 10px;
   }
 
@@ -906,6 +941,17 @@
     grid-template-columns: 1fr;
   }
 
+  .permission-name-cell,
+  .permission-type-cell,
+  .grant-description-cell,
+  .grant-related-links,
+  .grant-related-links span,
+  .permission-related-links span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   .json-description,
   .json-editor-toolbar {
     padding-left: 16px;
@@ -922,13 +968,16 @@
   }
 
   .json-editor {
+    flex: 1 1 auto;
     width: calc(100% - 32px);
     min-height: 240px;
-    height: min(42vh, 320px);
+    height: min(38vh, 320px);
     margin-left: 16px;
     margin-right: 16px;
     padding: 14px;
     font-size: 13px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .permission-modal-footer {

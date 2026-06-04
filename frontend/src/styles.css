@@ -370,6 +370,11 @@ pre {
   z-index: 100;
 }
 
+body:has(.permission-modal-backdrop),
+body:has(.bug-delete-modal-backdrop) {
+  overflow: hidden;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -2057,6 +2062,11 @@ tbody tr:hover td {
   box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22);
 }
 
+.permission-modal-scroll {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .permission-modal-header {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -2069,7 +2079,13 @@ tbody tr:hover td {
 }
 
 .grant-modal {
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.grant-modal-scroll {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
 }
 
 .grant-toolbar,
@@ -2173,6 +2189,7 @@ tbody tr:hover td {
 .grant-description-cell {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .grant-description-cell strong {
@@ -2181,10 +2198,19 @@ tbody tr:hover td {
 
 .grant-related-links {
   gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .json-modal {
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.json-modal-scroll {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .json-tabs {

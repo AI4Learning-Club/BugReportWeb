@@ -634,10 +634,16 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
 
       {grantOpen && (
         <div className="permission-modal-backdrop" role="presentation" onClick={closeGrantModal}>
-          <section className="permission-modal grant-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+          <section
+            className="permission-modal grant-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="grant-permission-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
             <header className="permission-modal-header">
               <div>
-                <h2>开通权限</h2>
+                <h2 id="grant-permission-modal-title">开通权限</h2>
                 <p>{selectedRole?.name ?? '未选择角色'} · 勾选后确认保存</p>
               </div>
               <button className="icon-button" type="button" onClick={closeGrantModal} title="关闭弹窗">
@@ -645,105 +651,107 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
               </button>
             </header>
 
-            <div className="grant-toolbar">
-              <label className="search-field permission-search">
-                <Search size={16} />
-                <input
-                  placeholder="例如：创建 Bug、Delete Bug"
-                  value={grantSearch}
-                  onChange={(event) => setGrantSearch(event.target.value)}
-                />
-              </label>
-              <select value={grantSearchField} onChange={(event) => setGrantSearchField(event.target.value as SearchField)}>
-                <option value="zhName">权限名称</option>
-                <option value="enName">英文名称</option>
-              </select>
-            </div>
+            <div className="permission-modal-scroll grant-modal-scroll">
+              <div className="grant-toolbar">
+                <label className="search-field permission-search">
+                  <Search size={16} />
+                  <input
+                    placeholder="例如：创建 Bug、Delete Bug"
+                    value={grantSearch}
+                    onChange={(event) => setGrantSearch(event.target.value)}
+                  />
+                </label>
+                <select value={grantSearchField} onChange={(event) => setGrantSearchField(event.target.value as SearchField)}>
+                  <option value="zhName">权限名称</option>
+                  <option value="enName">英文名称</option>
+                </select>
+              </div>
 
-            <div className="grant-tabs">
-              <button
-                className={grantScope === 'tenant' ? 'active' : ''}
-                type="button"
-                onClick={() => setGrantScope('tenant')}
-              >
-                应用身份权限 <span>tenant_access_token</span>
-              </button>
-              <button
-                className={grantScope === 'user' ? 'active' : ''}
-                type="button"
-                onClick={() => setGrantScope('user')}
-              >
-                用户身份权限 <span>user_access_token</span>
-              </button>
-            </div>
+              <div className="grant-tabs">
+                <button
+                  className={grantScope === 'tenant' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setGrantScope('tenant')}
+                >
+                  应用身份权限 <span>tenant_access_token</span>
+                </button>
+                <button
+                  className={grantScope === 'user' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setGrantScope('user')}
+                >
+                  用户身份权限 <span>user_access_token</span>
+                </button>
+              </div>
 
-            <div className="grant-layout">
-              <aside className="grant-category-list">
-                {grantCategories.map((category) => (
-                  <button
-                    key={category}
-                    className={grantCategory === category ? 'active' : ''}
-                    type="button"
-                    onClick={() => setGrantCategory(category)}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </aside>
+              <div className="grant-layout">
+                <aside className="grant-category-list">
+                  {grantCategories.map((category) => (
+                    <button
+                      key={category}
+                      className={grantCategory === category ? 'active' : ''}
+                      type="button"
+                      onClick={() => setGrantCategory(category)}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </aside>
 
-              <div className="grant-list-wrap">
-                <table className="grant-list-table">
-                  <thead>
-                    <tr>
-                      <th />
-                      <th>权限名称</th>
-                      <th>权限描述</th>
-                      <th>关联 API/事件</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {grantPermissions.map((permission) => {
-                      const checked = grantPermissionSet.has(permission.code);
-                      const relatedPreview = permission.relatedEntries.slice(0, 2);
-                      const focused = focusedPermissionCode === permission.code;
-                      return (
-                        <tr key={permission.code} className={focused ? 'focused' : ''}>
-                          <td data-label="选择">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(event) => toggleDraftPermission(permission.code, event.target.checked)}
-                            />
-                          </td>
-                          <td data-label="权限名称">
-                            <div className="permission-name-cell">
-                              <strong>{permission.zhName}</strong>
-                              <span>{permission.code}</span>
-                            </div>
-                          </td>
-                          <td data-label="权限描述">
-                            <div className="grant-description-cell">
-                              <strong>{permission.summary}</strong>
-                              <span>{permission.description}</span>
-                            </div>
-                          </td>
-                          <td data-label="关联 API/事件">
-                            <div className="grant-related-links">
-                              {relatedPreview.map((entry, index) => (
-                                <span key={permission.code + '-' + entry.label + '-' + index}>[{entry.kind}] {entry.label}</span>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {grantPermissions.length === 0 && (
+                <div className="grant-list-wrap">
+                  <table className="grant-list-table">
+                    <thead>
                       <tr>
-                        <td className="empty-cell" colSpan={4}>没有匹配的权限。</td>
+                        <th />
+                        <th>权限名称</th>
+                        <th>权限描述</th>
+                        <th>关联 API/事件</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {grantPermissions.map((permission) => {
+                        const checked = grantPermissionSet.has(permission.code);
+                        const relatedPreview = permission.relatedEntries.slice(0, 2);
+                        const focused = focusedPermissionCode === permission.code;
+                        return (
+                          <tr key={permission.code} className={focused ? 'focused' : ''}>
+                            <td data-label="选择">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(event) => toggleDraftPermission(permission.code, event.target.checked)}
+                              />
+                            </td>
+                            <td data-label="权限名称">
+                              <div className="permission-name-cell">
+                                <strong>{permission.zhName}</strong>
+                                <span>{permission.code}</span>
+                              </div>
+                            </td>
+                            <td data-label="权限描述">
+                              <div className="grant-description-cell">
+                                <strong>{permission.summary}</strong>
+                                <span>{permission.description}</span>
+                              </div>
+                            </td>
+                            <td data-label="关联 API/事件">
+                              <div className="grant-related-links">
+                                {relatedPreview.map((entry, index) => (
+                                  <span key={permission.code + '-' + entry.label + '-' + index}>[{entry.kind}] {entry.label}</span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {grantPermissions.length === 0 && (
+                        <tr>
+                          <td className="empty-cell" colSpan={4}>没有匹配的权限。</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -759,10 +767,16 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
 
       {jsonOpen && (
         <div className="permission-modal-backdrop" role="presentation" onClick={closeJsonModal}>
-          <section className="permission-modal json-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+          <section
+            className="permission-modal json-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="json-permission-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
             <header className="permission-modal-header">
               <div>
-                <h2>批量导入/导出权限</h2>
+                <h2 id="json-permission-modal-title">批量导入/导出权限</h2>
                 <p>{selectedRole?.name ?? '未选择角色'} · 使用当前角色的权限 JSON 结构</p>
               </div>
               <button className="icon-button" type="button" onClick={closeJsonModal} title="关闭弹窗">
@@ -770,46 +784,48 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
               </button>
             </header>
 
-            <div className="json-tabs">
-              <button className={jsonTab === 'import' ? 'active' : ''} type="button" onClick={() => setJsonTab('import')}>导入</button>
-              <button className={jsonTab === 'export' ? 'active' : ''} type="button" onClick={() => setJsonTab('export')}>导出</button>
-            </div>
-
-            <p className="json-description">
-              {jsonTab === 'import'
-                ? '可按照以下 JSON 结构批量修改当前角色的权限。'
-                : '下面展示的是当前角色的权限 JSON，可直接复制或下载。'}
-            </p>
-
-            <div className="json-editor-toolbar">
-              <strong>JSON</strong>
-              <div className="actions">
-                {jsonTab === 'import' && (
-                  <>
-                    <button className="text-link-button" type="button" onClick={restoreJsonDefault}>恢复默认值</button>
-                    <button className="text-link-button" type="button" onClick={formatJsonDraft}>格式化 JSON</button>
-                  </>
-                )}
-                {jsonTab === 'export' && (
-                  <button className="text-link-button" type="button" onClick={() => void downloadCurrentRoleJson()}>
-                    <Download size={16} />
-                    下载 JSON
-                  </button>
-                )}
+            <div className="permission-modal-scroll json-modal-scroll">
+              <div className="json-tabs">
+                <button className={jsonTab === 'import' ? 'active' : ''} type="button" onClick={() => setJsonTab('import')}>导入</button>
+                <button className={jsonTab === 'export' ? 'active' : ''} type="button" onClick={() => setJsonTab('export')}>导出</button>
               </div>
-            </div>
 
-            <textarea
-              className="json-editor"
-              value={jsonTab === 'import' ? jsonDraft : buildPermissionScopeJson(selectedRole?.permissions ?? [], permissionViews)}
-              onChange={(event) => {
-                if (jsonTab === 'import') {
-                  setJsonDraft(event.target.value);
-                }
-              }}
-              readOnly={jsonTab === 'export'}
-              spellCheck={false}
-            />
+              <p className="json-description">
+                {jsonTab === 'import'
+                  ? '可按照以下 JSON 结构批量修改当前角色的权限。'
+                  : '下面展示的是当前角色的权限 JSON，可直接复制或下载。'}
+              </p>
+
+              <div className="json-editor-toolbar">
+                <strong>JSON</strong>
+                <div className="actions">
+                  {jsonTab === 'import' && (
+                    <>
+                      <button className="text-link-button" type="button" onClick={restoreJsonDefault}>恢复默认值</button>
+                      <button className="text-link-button" type="button" onClick={formatJsonDraft}>格式化 JSON</button>
+                    </>
+                  )}
+                  {jsonTab === 'export' && (
+                    <button className="text-link-button" type="button" onClick={() => void downloadCurrentRoleJson()}>
+                      <Download size={16} />
+                      下载 JSON
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <textarea
+                className="json-editor"
+                value={jsonTab === 'import' ? jsonDraft : buildPermissionScopeJson(selectedRole?.permissions ?? [], permissionViews)}
+                onChange={(event) => {
+                  if (jsonTab === 'import') {
+                    setJsonDraft(event.target.value);
+                  }
+                }}
+                readOnly={jsonTab === 'export'}
+                spellCheck={false}
+              />
+            </div>
 
             <footer className="permission-modal-footer">
               <button className="ghost" type="button" onClick={closeJsonModal}>取消</button>
