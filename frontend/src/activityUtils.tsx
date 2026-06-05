@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react';
 import { Trash2 } from 'lucide-react';
 import { BugActivity, BugStatus, FeatureActivity, FeatureStatus } from './api';
+import { MarkdownContent } from './MarkdownContent';
 
 export type ItemActivityKind = 'bug' | 'feature';
 export type ItemActivity = BugActivity | FeatureActivity;
@@ -51,6 +52,12 @@ export function activityTitle(activity: ItemActivity, kind: ItemActivityKind) {
     UPDATED: '编辑功能',
     STATUS_CHANGED: '变更状态',
     DELETED: '移入回收站',
+    SCREENSHOT_ADDED: '上传截图',
+    SCREENSHOT_REMOVED: '删除截图',
+    IMPLEMENTATION_ITEM_ADDED: '添加实现项',
+    IMPLEMENTATION_ITEM_UPDATED: '更新实现项',
+    IMPLEMENTATION_ITEM_REMOVED: '删除实现项',
+    IMPLEMENTATION_ITEM_STATUS_CHANGED: '变更实现项状态',
     OWNER_CLAIMED: '认领负责人',
     OWNER_DELEGATED: '委派负责人',
     OWNER_REVOKED: '撤销负责人',
@@ -71,8 +78,25 @@ export function fieldLabel(field: string) {
     steps: '复现步骤',
     expected: '期望结果',
     actual: '实际结果',
-    logText: '日志内容'
+    logText: '日志内容',
+    plannedStartAt: '计划开始',
+    plannedEndAt: '计划结束',
+    actualStartAt: '实际开始',
+    completedAt: '完成时间',
+    note: '说明',
+    sortOrder: '排序',
+    ownerId: '负责人'
   }[field] ?? field;
+}
+
+const IMPLEMENTATION_ITEM_STATUS_LABELS: Record<string, string> = {
+  NOT_STARTED: '未开始',
+  IN_PROGRESS: '进行中',
+  DONE: '已完成'
+};
+
+export function implementationItemStatusLabel(status: string) {
+  return IMPLEMENTATION_ITEM_STATUS_LABELS[status] ?? status;
 }
 
 export function statusLabel(status: BugStatus) {
@@ -210,11 +234,38 @@ export function describeActivityContext(activity: ItemActivity | null, kind: Ite
     }
   }
 
-  if (activity.type === 'DELETED') {
-    return get('deletedBy') ? `执行人：${get('deletedBy')}` : personnelSummary;
+  const featureActivity = activity as FeatureActivity;
+  switch (featureActivity.type) {
+    case 'SCREENSHOT_ADDED':
+    case 'SCREENSHOT_REMOVED':
+      return ['文件：' + get('originalName'), get('caption') ? '说明：' + get('caption') : '']
+        .filter(Boolean)
+        .join('，');
+    case 'IMPLEMENTATION_ITEM_ADDED':
+    case 'IMPLEMENTATION_ITEM_UPDATED':
+    case 'IMPLEMENTATION_ITEM_REMOVED':
+      return [
+        get('itemTitle') ? '实现项：' + get('itemTitle') : '',
+        get('plannedStartAt') ? '计划开始：' + formatDateTime(get('plannedStartAt')) : '',
+        get('plannedEndAt') ? '计划结束：' + formatDateTime(get('plannedEndAt')) : ''
+      ]
+        .filter(Boolean)
+        .join('，');
+    case 'IMPLEMENTATION_ITEM_STATUS_CHANGED': {
+      const from = implementationItemStatusLabel(get('fromItemStatus'));
+      const to = implementationItemStatusLabel(get('toItemStatus'));
+      return [
+        get('itemTitle') ? '实现项：' + get('itemTitle') : '',
+        from && to ? `${from} → ${to}` : ''
+      ]
+        .filter(Boolean)
+        .join('，');
+    }
+    case 'DELETED':
+      return get('deletedBy') ? `执行人：${get('deletedBy')}` : personnelSummary;
+    default:
+      return personnelSummary;
   }
-
-  return personnelSummary;
 }
 
 function describeCreatedPreview(activity: ItemActivity) {
@@ -317,7 +368,10 @@ function ActivityChangeRow({
       <div key={activityId + '-' + change.field + '-' + index} className="activity-change-row activity-change-row-initial">
         <strong>{fieldLabel(change.field)}</strong>
         {isLong ? (
-          <pre className="activity-detail-long-text">{formatChangeValue(change.field, change.to, 'detail')}</pre>
+          <MarkdownContent
+            text={formatChangeValue(change.field, change.to, 'detail')}
+            className="activity-detail-long-text"
+          />
         ) : (
           <span>{formatChangeValue(change.field, change.to, 'detail')}</span>
         )}
@@ -332,11 +386,17 @@ function ActivityChangeRow({
         <div className="activity-change-long-values">
           <div>
             <span className="muted">变更前</span>
-            <pre className="activity-detail-long-text">{formatChangeValue(change.field, change.from, 'detail')}</pre>
+            <MarkdownContent
+              text={formatChangeValue(change.field, change.from, 'detail')}
+              className="activity-detail-long-text"
+            />
           </div>
           <div>
             <span className="muted">变更后</span>
-            <pre className="activity-detail-long-text">{formatChangeValue(change.field, change.to, 'detail')}</pre>
+            <MarkdownContent
+              text={formatChangeValue(change.field, change.to, 'detail')}
+              className="activity-detail-long-text"
+            />
           </div>
         </div>
       ) : (
@@ -415,7 +475,13 @@ function ContextDetailSection({ activity, kind }: { activity: ItemActivity; kind
           {rows.map((row) => (
             <div key={row.label} className="activity-detail-dl-row">
               <dt>{row.label}</dt>
-              <dd>{row.label.includes('备注') ? <pre className="activity-detail-long-text inline">{row.value}</pre> : row.value}</dd>
+              <dd>
+                {row.label.includes('备注') ? (
+                  <MarkdownContent text={row.value} className="activity-detail-long-text inline" />
+                ) : (
+                  row.value
+                )}
+              </dd>
             </div>
           ))}
         </dl>
@@ -423,7 +489,10 @@ function ContextDetailSection({ activity, kind }: { activity: ItemActivity; kind
     );
   }
 
-  if (kind === 'bug' && (activity.type === 'SCREENSHOT_ADDED' || activity.type === 'SCREENSHOT_REMOVED')) {
+  if (
+    (kind === 'bug' || kind === 'feature') &&
+    (activity.type === 'SCREENSHOT_ADDED' || activity.type === 'SCREENSHOT_REMOVED')
+  ) {
     return (
       <section className="activity-detail-section">
         <h3>截图信息</h3>
@@ -480,6 +549,51 @@ function ContextDetailSection({ activity, kind }: { activity: ItemActivity; kind
     );
   }
 
+  if (
+    kind === 'feature' &&
+    (activity.type === 'IMPLEMENTATION_ITEM_ADDED' ||
+      activity.type === 'IMPLEMENTATION_ITEM_UPDATED' ||
+      activity.type === 'IMPLEMENTATION_ITEM_REMOVED' ||
+      activity.type === 'IMPLEMENTATION_ITEM_STATUS_CHANGED')
+  ) {
+    const rows: Array<{ label: string; value: string }> = [];
+    if (get('itemTitle')) {
+      rows.push({ label: '实现项', value: get('itemTitle') });
+    }
+    if (get('plannedStartAt')) {
+      rows.push({ label: '计划开始', value: formatDateTime(get('plannedStartAt')) });
+    }
+    if (get('plannedEndAt')) {
+      rows.push({ label: '计划结束', value: formatDateTime(get('plannedEndAt')) });
+    }
+    if (activity.type === 'IMPLEMENTATION_ITEM_STATUS_CHANGED') {
+      const from = get('fromItemStatus');
+      const to = get('toItemStatus');
+      if (from && to) {
+        rows.push({
+          label: '状态变更',
+          value: `${implementationItemStatusLabel(from)} → ${implementationItemStatusLabel(to)}`
+        });
+      }
+    }
+    if (rows.length === 0) {
+      return null;
+    }
+    return (
+      <section className="activity-detail-section">
+        <h3>实现项</h3>
+        <dl className="activity-detail-dl">
+          {rows.map((row) => (
+            <div key={row.label} className="activity-detail-dl-row">
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+    );
+  }
+
   if (activity.type === 'DELETED' && get('deletedBy')) {
     return (
       <section className="activity-detail-section">
@@ -523,7 +637,7 @@ export function ActivityDetailContent({
       {activity.note && (
         <section className="activity-detail-section">
           <h3>备注</h3>
-          <p>{activity.note}</p>
+          <MarkdownContent text={activity.note} />
         </section>
       )}
 

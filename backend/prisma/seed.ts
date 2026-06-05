@@ -12,7 +12,8 @@ async function main() {
         Permission.CREATE_BUG,
         Permission.RETEST_BUG,
         Permission.ADD_BUG_EVIDENCE,
-        Permission.CREATE_FEATURE
+        Permission.CREATE_FEATURE,
+        Permission.ADD_FEATURE_EVIDENCE
       ]
     },
     create: {
@@ -21,7 +22,8 @@ async function main() {
         Permission.CREATE_BUG,
         Permission.RETEST_BUG,
         Permission.ADD_BUG_EVIDENCE,
-        Permission.CREATE_FEATURE
+        Permission.CREATE_FEATURE,
+        Permission.ADD_FEATURE_EVIDENCE
       ]
     }
   });
@@ -35,7 +37,8 @@ async function main() {
         Permission.ADD_BUG_EVIDENCE,
         Permission.MARK_BUG_FIXED,
         Permission.CREATE_FEATURE,
-        Permission.UPDATE_FEATURE
+        Permission.UPDATE_FEATURE,
+        Permission.ADD_FEATURE_EVIDENCE
       ]
     },
     create: {
@@ -46,7 +49,8 @@ async function main() {
         Permission.ADD_BUG_EVIDENCE,
         Permission.MARK_BUG_FIXED,
         Permission.CREATE_FEATURE,
-        Permission.UPDATE_FEATURE
+        Permission.UPDATE_FEATURE,
+        Permission.ADD_FEATURE_EVIDENCE
       ]
     }
   });
@@ -64,6 +68,7 @@ async function main() {
         Permission.UPDATE_FEATURE,
         Permission.DELETE_FEATURE,
         Permission.DELETE_FEATURE_ACTIVITY,
+        Permission.ADD_FEATURE_EVIDENCE,
         Permission.VIEW_STATS,
         Permission.MANAGE_SYSTEMS,
         Permission.BECOME_ITEM_OWNER,
@@ -83,6 +88,7 @@ async function main() {
         Permission.UPDATE_FEATURE,
         Permission.DELETE_FEATURE,
         Permission.DELETE_FEATURE_ACTIVITY,
+        Permission.ADD_FEATURE_EVIDENCE,
         Permission.VIEW_STATS,
         Permission.MANAGE_SYSTEMS,
         Permission.BECOME_ITEM_OWNER,

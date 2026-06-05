@@ -18,6 +18,7 @@ enum Permission {
   UPDATE_FEATURE
   DELETE_FEATURE
   DELETE_FEATURE_ACTIVITY
+  ADD_FEATURE_EVIDENCE
   VIEW_STATS
   MANAGE_SYSTEMS
   MANAGE_ROLES
@@ -75,11 +76,23 @@ enum FeatureStatus {
   DONE
 }
 
+enum ImplementationItemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+}
+
 enum FeatureActivityType {
   CREATED
   UPDATED
   STATUS_CHANGED
   DELETED
+  SCREENSHOT_ADDED
+  SCREENSHOT_REMOVED
+  IMPLEMENTATION_ITEM_ADDED
+  IMPLEMENTATION_ITEM_UPDATED
+  IMPLEMENTATION_ITEM_REMOVED
+  IMPLEMENTATION_ITEM_STATUS_CHANGED
   OWNER_CLAIMED
   OWNER_DELEGATED
   OWNER_REVOKED
@@ -123,6 +136,8 @@ model User {
   completedFeatures    Feature[]            @relation("FeatureCompleter")
   deletedFeatures      Feature[]            @relation("FeatureDeleter")
   featureActivities    FeatureActivity[]
+  featureScreenshots   FeatureScreenshot[]
+  ownedImplementationItems FeatureImplementationItem[] @relation("ImplementationItemOwner")
 }
 
 model TrackedSystem {
@@ -271,17 +286,23 @@ model Feature {
   deletedAt     DateTime?
   deletedById   String?
   deletedBy     User?                @relation("FeatureDeleter", fields: [deletedById], references: [id])
-  deleteReason  String?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  relatedUsers  FeatureRelatedUser[]
-  activities    FeatureActivity[]
+  deleteReason       String?
+  plannedStartAt     DateTime?
+  plannedEndAt       DateTime?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+  relatedUsers       FeatureRelatedUser[]
+  activities         FeatureActivity[]
+  screenshots        FeatureScreenshot[]
+  implementationItems FeatureImplementationItem[]
 
   @@index([systemId])
   @@index([creatorId])
   @@index([ownerId])
   @@index([status])
   @@index([deletedAt])
+  @@index([plannedStartAt])
+  @@index([plannedEndAt])
 }
 
 model FeatureActivity {
@@ -311,4 +332,43 @@ model FeatureRelatedUser {
 
   @@id([featureId, userId])
   @@index([userId])
+}
+
+model FeatureScreenshot {
+  id           String   @id @default(cuid())
+  featureId    String
+  feature      Feature  @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  uploaderId   String
+  uploader     User     @relation(fields: [uploaderId], references: [id])
+  originalName String
+  storedName   String
+  path         String
+  mimeType     String
+  sizeBytes    Int
+  caption      String?
+  createdAt    DateTime @default(now())
+
+  @@index([featureId])
+}
+
+model FeatureImplementationItem {
+  id             String                   @id @default(cuid())
+  featureId      String
+  feature        Feature                  @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  sortOrder      Int
+  title          String
+  note           String?
+  status         ImplementationItemStatus @default(NOT_STARTED)
+  plannedStartAt DateTime?
+  plannedEndAt   DateTime?
+  actualStartAt  DateTime?
+  completedAt    DateTime?
+  ownerId        String?
+  owner          User?                    @relation("ImplementationItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([featureId, sortOrder])
+  @@index([featureId, plannedStartAt])
+  @@index([ownerId])
 }

@@ -11,6 +11,7 @@
 | 页面组织 | 主页保持轻量可扫读；复杂交互优先用**弹窗 / 模态面板**，避免堆砌繁杂 inline 内容 |
 | 缓动动效 | 过渡与入场动画使用统一缓动曲线与时长档位，优先复用现有 keyframes |
 | 写入与审计 | 所有**写入操作**写入活动记录，并提供可理解的**撤销**路径 |
+| API 文档 | 新增或变更前后端交互流程时，**同步更新** OpenAPI 与配套指南，与实现保持一致 |
 
 ---
 
@@ -40,6 +41,7 @@
 6. **前端类型与文案** — `frontend/src/api.ts`：`Permission` 联合类型、`PERMISSIONS` 数组、`PERMISSION_LABELS`。
 7. **角色管理 UI** — `frontend/src/RoleAdminPanel.tsx`：`PERMISSION_UI_META` 中为该权限补充 `module`、`category`、`permissionType`、`dataScope` 等展示元数据。
 8. **前端 gated UI** — 使用 `hasPermission(user, 'XXX')` 控制按钮、链接、面板是否展示（参考 `frontend/src/App.tsx`）。
+9. **API 文档** — 见 §6：在 `openapi.yaml` 登记新端点，并同步 `permissionDocs.ts` 与指南中的权限表。
 
 权限定义由 `GET /roles/permissions` 提供给角色管理页；**不要**只改前端而不改目录与枚举。
 
@@ -222,7 +224,73 @@
 
 ---
 
-## 6. 交付前检查表
+## 6. API 文档同步
+
+### 原则
+
+- 前后端新增或变更**交互流程**（新端点、改路径、改请求/响应体、改鉴权、改业务规则）时，API 文档必须与代码**同一 PR / 同一交付**完成更新，不得「先合代码、后补文档」。
+- 文档以**后端实际行为**为准：`Controller` 装饰器、`@Permissions`、`security`、服务层限制须与 OpenAPI 一致。
+- 前端 `frontend/src/api.ts` 中的类型与调用函数属于实现的一部分；若新增对外 API 封装，须与 OpenAPI Schema 对齐。
+
+### 文档体系（`/docs`）
+
+| 文件 | 用途 | 访问路径 |
+|------|------|----------|
+| `frontend/public/openapi.yaml` | **权威端点规范**：路径、方法、Schema、示例、`x-permissions`、`x-service-rules` | `/docs`（API 参考） |
+| `frontend/public/content/api-guide.md` | **集成指南**：典型工作流、撤销对称操作、权限矩阵、错误处理 | `/docs/api-guide` |
+| `frontend/public/content/ai-guide.md` | **AI 代理指南**：决策树、禁止事项、自动化调用顺序 | `/docs/ai-guide` |
+| `frontend/src/docs/permissionDocs.ts` | 文档页权限摘要（与 `permission-catalog` 的 `apis` 对齐） | API 指南内引用 |
+
+OpenAPI 由 `frontend/public/openapi.yaml` 提供静态服务；**不要**只改 dist 或 node_modules 中的副本。
+
+### 何时必须更新
+
+- 新增 / 删除 / 重命名 REST 端点或 `operationId`
+- 修改请求体、查询参数、响应结构或 HTTP 状态码语义
+- 新增 / 变更权限装饰器或服务层规则（创建者限制、admin 专属、动态鉴权等）
+- 新增用户可见的**多步交互流程**（如：认领 → 改状态 → 复测）
+- 新增活动类型、撤销路径或集成方需知的业务约束
+- 面向外部代理 / 脚本的新能力（须同步 `ai-guide.md` 决策树或禁止项）
+
+仅改前端 UI 文案、样式、不涉及 API 契约时，可跳过本节。
+
+### 实现清单（新 / 改 API）
+
+1. **OpenAPI** — 在 `frontend/public/openapi.yaml` 的 `paths` 下补充或更新 operation：
+   - `summary`、`description`（中文，写清副作用与活动记录）
+   - `tags`、`operationId`
+   - `security` / `x-permissions`（与 `@Permissions` 一致；仅需 JWT 时写 `[]`）
+   - `x-service-rules`（服务层额外限制，列表项简短明确）
+   - `requestBody` / `parameters` / `responses`，复用 `#/components/schemas` 与 `#/components/responses`
+   - 至少一个可运行的 `examples`（写操作优先）
+2. **Schema** — 新 DTO / 响应字段在 `components.schemas` 中定义或更新；枚举与 `schema.prisma` / `api.ts` 保持一致。
+3. **权限目录** — 新权限时：`permission-catalog.ts` 的 `apis` 字段列出对应端点（见 §1）；同步 `permissionDocs.ts`。
+4. **API 指南** — 若影响集成方工作流，更新 `api-guide.md` 对应章节（典型流程、撤销表、权限速查、无装饰器端点表）。
+5. **AI 指南** — 若影响自主代理调用顺序或禁区，更新 `ai-guide.md` 决策树 / 检查清单。
+6. **info 速查表** — 若变更全局权限说明或高频端点映射，同步 `openapi.yaml` 的 `info.description` 内权限速查表（与 `api-guide.md` §5.3 保持一致）。
+
+### 变更端点时的额外项
+
+- **废弃**：在 OpenAPI `description` 标明替代端点与移除计划；`api-guide.md` 工作流改用新路径。
+- **改鉴权**：同时更新 `x-permissions`、`permission-catalog`、`permissionDocs.ts`、指南中的权限矩阵。
+- **改撤销语义**：同步 §5 活动记录约定、`api-guide.md` §3 撤销表、相关端点 `description`。
+
+### 自检
+
+- `/docs` 中能找到新端点，示例请求体与后端 DTO 一致。
+- `x-permissions` / `x-service-rules` 与 Controller + Service 实测行为一致（含 403 场景）。
+- 新工作流在 `api-guide.md` 有端到端步骤；代理相关流程在 `ai-guide.md` 有说明。
+- 新权限在 `GET /roles/permissions`、角色管理 UI 与文档权限表中均可见。
+
+### 参考
+
+- OpenAPI 示例：`frontend/public/openapi.yaml` 中 `/auth/register`、`POST /bugs`
+- 文档路由：`frontend/src/docs/DocsPage.tsx`
+- 权限文档：`frontend/src/docs/permissionDocs.ts`
+
+---
+
+## 7. 交付前检查表
 
 ```
 [ ] 是否需要新 Permission？若是，已完成 schema、migration、catalog、seed、@Permissions、api.ts、RoleAdminPanel、hasPermission UI
@@ -231,12 +299,13 @@
 [ ] 过渡 / 入场动画使用 --ease-out / --ease-smooth 与现有 keyframes，时长符合 §4 档位
 [ ] 每个新写入 API 均在事务中写入活动记录，且前端能展示标题与摘要
 [ ] 用户可见的写入具备撤销或反向操作，权限与活动记录已对齐
+[ ] 新增 / 变更 API 已同步 openapi.yaml；工作流 / 撤销 / 权限变更已更新 api-guide.md（及 ai-guide.md、permissionDocs.ts，若适用）
 [ ] npm run build（backend + frontend）通过
 ```
 
 ---
 
-## 7. 仓库结构速查
+## 8. 仓库结构速查
 
 | 路径 | 用途 |
 |------|------|
@@ -248,10 +317,15 @@
 | `frontend/src/styles.css` | 全局样式、缓动变量、`@keyframes`、弹窗动效 |
 | `frontend/src/mobile.css` | 响应式覆盖 |
 | `backend/prisma/schema.prisma` | 数据模型与枚举 |
+| `frontend/public/openapi.yaml` | OpenAPI 规范（API 参考数据源） |
+| `frontend/public/content/api-guide.md` | API 集成指南 |
+| `frontend/public/content/ai-guide.md` | AI 代理调用指南 |
+| `frontend/src/docs/permissionDocs.ts` | 文档页权限摘要 |
 
 ---
 
-## 8. 与其他文档的关系
+## 9. 与其他文档的关系
 
 - 本地启动与环境：见根目录 `README.md`。
+- API 文档入口：`README.md` 中的 `/docs` 说明；规范文件见 §6。
 - 本文件面向 **Agent / 贡献者** 的功能扩展约束，优先级高于临时实现习惯。

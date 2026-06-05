@@ -66,7 +66,8 @@ info:
     | `ADD_BUG_EVIDENCE` | 补充证据 | 截图 / 运行信息相关 |
     | `DELETE_BUG` | 软删除 Bug | `POST /bugs/{id}/delete` |
     | `CREATE_FEATURE` | 登记功能 | `POST /features` |
-    | `UPDATE_FEATURE` | 更新功能 | `PATCH /features/{id}`、`/status`、`/personnel/join` |
+    | `UPDATE_FEATURE` | 更新功能 | `PATCH /features/{id}`、`/status`、实现项 CRUD |
+    | `ADD_FEATURE_EVIDENCE` | 补充功能证据 | `POST/DELETE /features/{id}/screenshots` |
     | `BECOME_ITEM_OWNER` | 成为负责人 | `POST .../personnel/claim-owner` |
     | `DELEGATE_ITEM_OWNER` | 委派负责人 | `PATCH .../personnel`（`ownerId`） |
     | `DELEGATE_ITEM_RELATED` | 委派相关人 | `PATCH .../personnel`（`add/removeRelatedUserIds`） |
@@ -1019,6 +1020,23 @@ paths:
         - $ref: "#/components/parameters/featureStatus"
         - $ref: "#/components/parameters/deleted"
         - $ref: "#/components/parameters/participantUserId"
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, plannedStart, plannedEnd, progress, title]
+            default: createdAt
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: hasSchedule
+          in: query
+          schema:
+            type: string
+            enum: ['true']
       responses:
         "200":
           description: 功能列表
@@ -1068,6 +1086,41 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  /features/gantt:
+    get:
+      tags: [Features]
+      summary: 功能甘特图数据
+      description: |
+        返回带计划时间与实现项的功能列表，默认按 `plannedStart` 升序。
+        可用 `from` / `to` 过滤与时间窗口重叠的功能。
+      x-permissions: []
+      operationId: featuresGantt
+      parameters:
+        - $ref: "#/components/parameters/systemId"
+        - $ref: "#/components/parameters/featureStatus"
+        - $ref: "#/components/parameters/participantUserId"
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: 甘特图条目
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeatureGanttEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /features/{id}:
     get:
@@ -1321,6 +1374,219 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FeatureDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/screenshots:
+    post:
+      tags: [Features, Attachments]
+      summary: 上传功能截图
+      description: |
+        `multipart/form-data` 上传。字段 `file`（必填）须为 `image/*`，最大 **50MB**。
+        写入 `SCREENSHOT_ADDED` 活动。
+      x-permissions: [ADD_FEATURE_EVIDENCE]
+      operationId: featuresAddScreenshot
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                caption:
+                  type: string
+      responses:
+        "201":
+          description: 截图记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Screenshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/screenshots/{screenshotId}:
+    delete:
+      tags: [Features, Attachments]
+      summary: 删除功能截图
+      description: 删除截图文件并写入 `SCREENSHOT_REMOVED` 活动。
+      x-permissions: [ADD_FEATURE_EVIDENCE]
+      operationId: featuresRemoveScreenshot
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+        - name: screenshotId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/implementation-items:
+    get:
+      tags: [Features]
+      summary: 实现项列表
+      x-permissions: []
+      operationId: featuresListImplementationItems
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      responses:
+        "200":
+          description: 实现项列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ImplementationItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Features]
+      summary: 创建实现项
+      description: 写入 `IMPLEMENTATION_ITEM_ADDED` 活动；无功能级计划时间时自动汇总子项计划。
+      x-permissions: [UPDATE_FEATURE]
+      operationId: featuresCreateImplementationItem
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateImplementationItemBody"
+      responses:
+        "201":
+          description: 新建实现项
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImplementationItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/implementation-items/{itemId}:
+    patch:
+      tags: [Features]
+      summary: 更新实现项
+      x-permissions: [UPDATE_FEATURE]
+      operationId: featuresUpdateImplementationItem
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateImplementationItemBody"
+      responses:
+        "200":
+          description: 更新后的实现项
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImplementationItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Features]
+      summary: 删除实现项
+      x-permissions: [UPDATE_FEATURE]
+      operationId: featuresDeleteImplementationItem
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/implementation-items/{itemId}/status:
+    patch:
+      tags: [Features]
+      summary: 变更实现项状态
+      description: 必填 `note`；状态前进时自动写入实际开始/完成时间。
+      x-permissions: [UPDATE_FEATURE]
+      operationId: featuresUpdateImplementationItemStatus
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateImplementationItemStatusBody"
+      responses:
+        "200":
+          description: 更新后的实现项
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImplementationItem"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2257,6 +2523,7 @@ components:
         - UPDATE_FEATURE
         - DELETE_FEATURE
         - DELETE_FEATURE_ACTIVITY
+        - ADD_FEATURE_EVIDENCE
         - VIEW_STATS
         - MANAGE_SYSTEMS
         - MANAGE_ROLES
@@ -2569,6 +2836,12 @@ components:
             - UPDATED
             - STATUS_CHANGED
             - DELETED
+            - SCREENSHOT_ADDED
+            - SCREENSHOT_REMOVED
+            - IMPLEMENTATION_ITEM_ADDED
+            - IMPLEMENTATION_ITEM_UPDATED
+            - IMPLEMENTATION_ITEM_REMOVED
+            - IMPLEMENTATION_ITEM_STATUS_CHANGED
             - OWNER_CLAIMED
             - OWNER_DELEGATED
             - OWNER_REVOKED
@@ -2731,6 +3004,31 @@ components:
           type: string
           format: date-time
           nullable: true
+        plannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        plannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        effectivePlannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        effectivePlannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        progressPercent:
+          type: integer
+          nullable: true
+        implementationItemCount:
+          type: integer
+        implementationItemDoneCount:
+          type: integer
+        screenshotCount:
+          type: integer
         deletedBy:
           oneOf:
             - $ref: "#/components/schemas/AssignableUser"
@@ -2754,10 +3052,170 @@ components:
         - $ref: "#/components/schemas/FeatureItem"
         - type: object
           properties:
+            screenshots:
+              type: array
+              items:
+                $ref: "#/components/schemas/Screenshot"
+            implementationItems:
+              type: array
+              items:
+                $ref: "#/components/schemas/ImplementationItem"
             activities:
               type: array
               items:
                 $ref: "#/components/schemas/FeatureActivity"
+
+    FeatureGanttEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: "#/components/schemas/FeatureStatus"
+        system:
+          $ref: "#/components/schemas/TrackedSystem"
+        owner:
+          oneOf:
+            - $ref: "#/components/schemas/AssignableUser"
+            - type: "null"
+        plannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        plannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        effectivePlannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        effectivePlannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        progressPercent:
+          type: integer
+          nullable: true
+        implementationItemCount:
+          type: integer
+        implementationItemDoneCount:
+          type: integer
+        implementationItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImplementationItem"
+
+    ImplementationItem:
+      type: object
+      properties:
+        id:
+          type: string
+        featureId:
+          type: string
+        sortOrder:
+          type: integer
+        title:
+          type: string
+        note:
+          type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/ImplementationItemStatus"
+        plannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        plannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        actualStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        owner:
+          oneOf:
+            - $ref: "#/components/schemas/AssignableUser"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ImplementationItemStatus:
+      type: string
+      enum: [NOT_STARTED, IN_PROGRESS, DONE]
+
+    CreateImplementationItemBody:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        note:
+          type: string
+          nullable: true
+        sortOrder:
+          type: integer
+        plannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        plannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        ownerId:
+          type: string
+          nullable: true
+
+    UpdateImplementationItemBody:
+      type: object
+      properties:
+        title:
+          type: string
+        note:
+          type: string
+          nullable: true
+        sortOrder:
+          type: integer
+        plannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        plannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        actualStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        ownerId:
+          type: string
+          nullable: true
+
+    UpdateImplementationItemStatusBody:
+      type: object
+      required: [status, note]
+      properties:
+        status:
+          $ref: "#/components/schemas/ImplementationItemStatus"
+        note:
+          type: string
 
     CreateBugBody:
       type: object
@@ -2827,6 +3285,14 @@ components:
           description: 功能描述与验收标准
         priority:
           $ref: "#/components/schemas/Severity"
+        plannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        plannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
 
     UpdateFeatureBody:
       type: object
@@ -2839,6 +3305,14 @@ components:
           type: string
         priority:
           $ref: "#/components/schemas/Severity"
+        plannedStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        plannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
 
     RoleBody:
       type: object

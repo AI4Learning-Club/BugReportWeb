@@ -104,6 +104,16 @@ const PERMISSION_UI_META: Record<Permission, Omit<PermissionView, keyof Permissi
     requiresApproval: false,
     dataScope: '当前用户可登记的功能'
   },
+  ADD_FEATURE_EVIDENCE: {
+    scope: 'user',
+    scopeLabel: '用户身份权限',
+    scopeToken: 'user_access_token',
+    module: '功能管理',
+    category: '附件与日志',
+    permissionType: '写入',
+    requiresApproval: false,
+    dataScope: '当前用户可补充的功能截图'
+  },
   UPDATE_FEATURE: {
     scope: 'user',
     scopeLabel: '用户身份权限',
@@ -112,7 +122,7 @@ const PERMISSION_UI_META: Record<Permission, Omit<PermissionView, keyof Permissi
     category: '流转与维护',
     permissionType: '写入',
     requiresApproval: false,
-    dataScope: '当前用户可编辑的功能'
+    dataScope: '当前用户可编辑的功能与实现项'
   },
   DELETE_FEATURE: {
     scope: 'user',

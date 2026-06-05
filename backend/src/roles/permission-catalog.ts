@@ -90,7 +90,25 @@ export const PERMISSION_CATALOG: PermissionCatalogItem[] = [
     summary: '允许编辑功能信息与状态。',
     description: '可编辑功能内容、状态等基础信息。',
     surfaces: ['功能详情页', '功能编辑页'],
-    apis: ['PATCH /features/:id', 'PATCH /features/:id/status']
+    apis: [
+      'PATCH /features/:id',
+      'PATCH /features/:id/status',
+      'POST /features/:id/personnel/join',
+      'POST /features/:id/implementation-items',
+      'PATCH /features/:id/implementation-items/:itemId',
+      'PATCH /features/:id/implementation-items/:itemId/status',
+      'DELETE /features/:id/implementation-items/:itemId'
+    ]
+  },
+  {
+    code: Permission.ADD_FEATURE_EVIDENCE,
+    zhName: '补充功能证据',
+    enName: 'Add Feature Evidence',
+    group: '功能管理',
+    summary: '允许为功能上传截图证据。',
+    description: '可为功能新增截图等辅助信息，并管理自己可操作的截图记录。',
+    surfaces: ['功能详情页'],
+    apis: ['POST /features/:id/screenshots', 'DELETE /features/:id/screenshots/:screenshotId']
   },
   {
     code: Permission.DELETE_FEATURE,

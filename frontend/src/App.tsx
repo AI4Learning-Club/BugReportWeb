@@ -37,7 +37,9 @@ import {
   User,
   api,
   assetUrl,
-  hasPermission
+  hasPermission,
+  normalizeFeatureDetail,
+  normalizeFeatureItem
 } from './api';
 import {
   ActivityDetailDialog,
@@ -54,11 +56,19 @@ import {
   UserManageDialog
 } from './AppDialogs';
 import { ActivityPanel, ItemActivity, formatDateTime } from './activityUtils';
+import {
+  FeatureGanttPage,
+  FeatureProgressBar,
+  FeatureProgressPanel,
+  featureListProgressLabel,
+  formatDateRange
+} from './FeatureViews';
 import { BugRetestDialog, PersonnelPanel } from './PersonnelPanel';
 import { RoleAdminPanel } from './RoleAdminPanel';
 import DocsPage from './docs/DocsPage';
 import { RuntimeInfoFields } from './RuntimeInfoFields';
 import { readError } from './errorUtils';
+import { MarkdownContent } from './MarkdownContent';
 import { notifyError } from './ToastProvider';
 
 type AuthContextValue = {
@@ -151,6 +161,7 @@ function App() {
         <Route path="/bugs/:id" element={<Protected><Shell><BugDetailPage /></Shell></Protected>} />
         <Route path="/admin/systems/:id/edit" element={<Protected><Shell><SystemEditPage /></Shell></Protected>} />
         <Route path="/features" element={<Protected><Shell><FeatureDashboard /></Shell></Protected>} />
+        <Route path="/features/gantt" element={<Protected><Shell><FeatureGanttPage /></Shell></Protected>} />
         <Route path="/features/new" element={<Protected><Shell><NewFeaturePage /></Shell></Protected>} />
         <Route path="/features/:id/edit" element={<Protected><Shell><FeatureEditPage /></Shell></Protected>} />
         <Route path="/features/:id" element={<Protected><Shell><FeatureDetailPage /></Shell></Protected>} />
@@ -823,7 +834,7 @@ function BugDetailPage() {
                       {' · '}
                       {bug.fixedAt ? formatDateTime(bug.fixedAt) : '时间未知'}
                     </p>
-                    {latestFixActivity?.note && <p>{latestFixActivity.note}</p>}
+                    {latestFixActivity?.note && <MarkdownContent text={latestFixActivity.note} className="info-block-body" />}
                   </div>
                 )}
                 <PersonnelPanel
@@ -1262,6 +1273,8 @@ function FeatureDashboard() {
   const [systemId, setSystemId] = useState('');
   const [status, setStatus] = useState('');
   const [participantUserId, setParticipantUserId] = useState('');
+  const [sortBy, setSortBy] = useState<'createdAt' | 'plannedStart' | 'plannedEnd' | 'progress' | 'title'>('createdAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [deleted, setDeleted] = useState<'active' | 'only' | 'all'>('active');
   const [deleteDialog, setDeleteDialog] = useState<{ feature: FeatureItem; mode: 'soft' | 'permanent' } | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
@@ -1275,7 +1288,10 @@ function FeatureDashboard() {
       if (status) params.set('status', status);
       if (deleted !== 'active') params.set('deleted', deleted);
       if (participantUserId) params.set('participantUserId', participantUserId);
-      setFeatures(await api<FeatureItem[]>(`/features?${params.toString()}`));
+      params.set('sortBy', sortBy);
+      params.set('sortOrder', sortOrder);
+      const rows = await api<FeatureItem[]>(`/features?${params.toString()}`);
+      setFeatures(rows.map((feature) => normalizeFeatureItem(feature)));
     } catch (loadError) {
       notifyError(readError(loadError));
     }
@@ -1288,7 +1304,7 @@ function FeatureDashboard() {
 
   useEffect(() => {
     void load();
-  }, [systemId, status, deleted, participantUserId]);
+  }, [systemId, status, deleted, participantUserId, sortBy, sortOrder]);
 
   function handleFeatureAction(feature: FeatureItem, action: 'delete' | 'permanent-delete') {
     if (action === 'delete') {
@@ -1351,6 +1367,18 @@ function FeatureDashboard() {
             <option value="all">全部数据</option>
           </select>
         )}
+        <select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}>
+          <option value="createdAt">按创建时间</option>
+          <option value="plannedStart">按计划开始</option>
+          <option value="plannedEnd">按计划结束</option>
+          <option value="progress">按完成进度</option>
+          <option value="title">按标题</option>
+        </select>
+        <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}>
+          <option value="desc">降序</option>
+          <option value="asc">升序</option>
+        </select>
+        <Link className="ghost compact" to="/features/gantt"><BarChart3 size={16} />甘特图</Link>
       </div>
       <div className="table-wrap">
         <table>
@@ -1360,6 +1388,9 @@ function FeatureDashboard() {
               <th>系统</th>
               <th>状态</th>
               <th>优先级</th>
+              <th>进度</th>
+              <th>计划时间</th>
+              <th>截图</th>
               <th>创建人</th>
               <th>负责人</th>
               {deleted !== 'active' && <th>删除信息</th>}
@@ -1381,6 +1412,12 @@ function FeatureDashboard() {
                   <td data-label="系统">{feature.system.name}</td>
                   <td data-label="状态"><FeatureStatusBadge status={feature.status} /></td>
                   <td data-label="优先级">{severityLabel(feature.priority)}</td>
+                  <td data-label="进度">
+                    <FeatureProgressBar percent={feature.progressPercent} />
+                    <span className="muted feature-progress-caption">{featureListProgressLabel(feature)}</span>
+                  </td>
+                  <td data-label="计划时间">{formatDateRange(feature.effectivePlannedStartAt, feature.effectivePlannedEndAt)}</td>
+                  <td data-label="截图">{feature.screenshotCount}</td>
                   <td data-label="创建人">{feature.creator.displayName}</td>
                   <td data-label="负责人">{feature.owner?.displayName ?? '未指定'}</td>
                   {deleted !== 'active' && (
@@ -1427,7 +1464,7 @@ function FeatureDashboard() {
               );
             })}
             {features.length === 0 && (
-              <tr><td colSpan={deleted !== 'active' ? 8 : 7} className="empty-cell">{deleted === 'only' ? '回收站中暂无功能。' : '暂无匹配的功能。'}</td></tr>
+              <tr><td colSpan={deleted !== 'active' ? 11 : 10} className="empty-cell">{deleted === 'only' ? '回收站中暂无功能。' : '暂无匹配的功能。'}</td></tr>
             )}
           </tbody>
         </table>
@@ -1454,11 +1491,45 @@ function FeatureDashboard() {
 function NewFeaturePage() {
   const navigate = useNavigate();
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
+  const [selectedScreenshots, setSelectedScreenshots] = useState<Array<{ id: string; file: File; url: string }>>([]);
+  const selectedScreenshotsRef = useRef(selectedScreenshots);
   const [form, setForm] = useState({ systemId: '', title: '', description: '', priority: 'MEDIUM' });
 
   useEffect(() => {
     void api<TrackedSystem[]>('/systems').then(setSystems);
   }, []);
+
+  useEffect(() => {
+    selectedScreenshotsRef.current = selectedScreenshots;
+  }, [selectedScreenshots]);
+
+  useEffect(() => {
+    return () => {
+      selectedScreenshotsRef.current.forEach((screenshot) => URL.revokeObjectURL(screenshot.url));
+    };
+  }, []);
+
+  function addSelectedScreenshots(fileList: FileList | null) {
+    if (!fileList) return;
+    const screenshots = Array.from(fileList)
+      .filter((file) => file.type.startsWith('image/'))
+      .map((file) => ({
+        id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
+        file,
+        url: URL.createObjectURL(file)
+      }));
+    setSelectedScreenshots((current) => [...current, ...screenshots]);
+  }
+
+  function removeSelectedScreenshot(id: string) {
+    setSelectedScreenshots((current) => {
+      const removed = current.find((screenshot) => screenshot.id === id);
+      if (removed) {
+        URL.revokeObjectURL(removed.url);
+      }
+      return current.filter((screenshot) => screenshot.id !== id);
+    });
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1467,6 +1538,11 @@ function NewFeaturePage() {
         method: 'POST',
         body: JSON.stringify(form)
       });
+      for (const screenshot of selectedScreenshots) {
+        const data = new FormData();
+        data.append('file', screenshot.file);
+        await api(`/features/${feature.id}/screenshots`, { method: 'POST', body: data });
+      }
       navigate(`/features/${feature.id}`);
     } catch (submitError) {
       notifyError(readError(submitError));
@@ -1491,6 +1567,23 @@ function NewFeaturePage() {
         </div>
         <label>标题<input required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
         <label>描述<textarea required value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+        <label>
+          截图（可选）
+          <input type="file" accept="image/*" multiple onChange={(event) => addSelectedScreenshots(event.target.files)} />
+        </label>
+        {selectedScreenshots.length > 0 && (
+          <div className="screenshots pending-screenshots">
+            {selectedScreenshots.map((screenshot) => (
+              <figure key={screenshot.id}>
+                <img src={screenshot.url} alt={screenshot.file.name} />
+                <figcaption>{screenshot.file.name}</figcaption>
+                <button className="icon-button" type="button" onClick={() => removeSelectedScreenshot(screenshot.id)} title="移除截图">
+                  <Trash2 size={16} />
+                </button>
+              </figure>
+            ))}
+          </div>
+        )}
         <button className="primary" type="submit"><Save size={16} />保存</button>
       </form>
     </>
@@ -1513,22 +1606,40 @@ function FeatureDetailPage() {
   const [activityDetailTarget, setActivityDetailTarget] = useState<ItemActivity | null>(null);
   const [activityDeleteTarget, setActivityDeleteTarget] = useState<FeatureActivity | null>(null);
   const [activityDeleteSubmitting, setActivityDeleteSubmitting] = useState(false);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadSubmitting, setUploadSubmitting] = useState(false);
 
   async function load() {
     if (!id) return;
-    setFeature(await api<FeatureDetail>(`/features/${id}`));
+    setFeature(normalizeFeatureDetail(await api<FeatureDetail>(`/features/${id}`)));
+  }
+
+  async function mutate(action: () => Promise<unknown>) {
+    try {
+      await action();
+      await load();
+    } catch (actionError) {
+      notifyError(readError(actionError));
+    }
   }
 
   useEffect(() => {
     void load().catch((loadError) => { setLoadFailed(true); notifyError(readError(loadError)); });
+    void api<AssignableUser[]>('/auth/assignable-users').then(setAssignableUsers).catch(() => undefined);
   }, [id]);
 
   if (!feature) {
-    return <div>{loadFailed ? '加载失败' : '加载中...'}</div>;
+    return <div className="center-screen">{loadFailed ? '加载失败' : '加载中...'}</div>;
   }
 
+  const screenshots = feature.screenshots ?? [];
   const canEdit = Boolean(!feature.deletedAt && (user?.isAdmin || feature.creator.id === user?.id));
   const canUpdate = hasPermission(user, 'UPDATE_FEATURE');
+  const canAddEvidence = hasPermission(user, 'ADD_FEATURE_EVIDENCE');
+  const hasOpenImplementationItems =
+    (feature.implementationItemCount ?? 0) > 0 &&
+    (feature.implementationItemDoneCount ?? 0) < (feature.implementationItemCount ?? 0);
   const canSoftDelete = Boolean(
     !feature.deletedAt &&
     hasPermission(user, 'DELETE_FEATURE') &&
@@ -1631,6 +1742,44 @@ function FeatureDetailPage() {
                 />
               </div>
             </div>
+            <div className="panel">
+              <div className="panel-heading-row">
+                <h2>截图</h2>
+                {canAddEvidence && !feature.deletedAt && (
+                  <button
+                    className="ghost compact"
+                    type="button"
+                    onClick={() => setUploadDialogOpen(true)}
+                  >
+                    <Upload size={16} />上传截图
+                  </button>
+                )}
+              </div>
+              <div className="screenshots">
+                {screenshots.map((shot) => (
+                  <figure key={shot.id}>
+                    <img src={assetUrl(shot.path)} alt={shot.caption ?? shot.originalName} />
+                    <figcaption>{shot.caption ?? shot.originalName}</figcaption>
+                    {canAddEvidence && !feature.deletedAt && (
+                      <button
+                        className="icon-button"
+                        onClick={() => mutate(() => api(`/features/${feature.id}/screenshots/${shot.id}`, { method: 'DELETE' }))}
+                        title="删除截图"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </figure>
+                ))}
+                {screenshots.length === 0 && <p className="muted">暂无截图</p>}
+              </div>
+            </div>
+            <FeatureProgressPanel
+              feature={feature}
+              user={user}
+              assignableUsers={assignableUsers}
+              onUpdated={load}
+            />
           </section>
         </div>
         <ActivityPanel
@@ -1640,6 +1789,29 @@ function FeatureDetailPage() {
           onViewAll={() => setActivityListOpen(true)}
         />
       </section>
+      {uploadDialogOpen && (
+        <EvidenceUploadDialog
+          entityLabel="feature"
+          submitting={uploadSubmitting}
+          onClose={() => {
+            if (!uploadSubmitting) setUploadDialogOpen(false);
+          }}
+          onConfirm={async (file) => {
+            setUploadSubmitting(true);
+            try {
+              const data = new FormData();
+              data.append('file', file);
+              await api(`/features/${feature.id}/screenshots`, { method: 'POST', body: data });
+              setUploadDialogOpen(false);
+              await load();
+            } catch (actionError) {
+              notifyError(readError(actionError));
+            } finally {
+              setUploadSubmitting(false);
+            }
+          }}
+        />
+      )}
       {activityListOpen && (
         <ActivityListDialog
           activities={feature.activities}
@@ -1702,6 +1874,12 @@ function FeatureDetailPage() {
             }
           }}
           onConfirm={async (status, note) => {
+            if (status === 'DONE' && hasOpenImplementationItems) {
+              const confirmed = window.confirm('仍有未完成的实现项，确定将功能标记为已完成？');
+              if (!confirmed) {
+                return;
+              }
+            }
             setStatusDialogSubmitting(true);
             try {
               await api(`/features/${feature.id}/status`, {
@@ -1815,7 +1993,7 @@ function FeatureEditPage() {
   }
 
   if (!feature) {
-    return <div>{loadFailed ? '加载失败' : '加载中'}</div>;
+    return <div className="center-screen">{loadFailed ? '加载失败' : '加载中...'}</div>;
   }
 
   const canEdit = Boolean(user?.isAdmin || feature.creator.id === user?.id);
@@ -2244,9 +2422,6 @@ function UserRow({
   const [manageOpen, setManageOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const initialsSource = (user.displayName || user.username).replace(/\s+/g, '').replace(/^@/, '');
-  const initials = initialsSource.slice(0, 2).toUpperCase() || user.username.slice(0, 2).toUpperCase();
-
   async function run(action: () => Promise<unknown>, closeOnSuccess = false) {
     setSubmitting(true);
     try {
@@ -2265,37 +2440,19 @@ function UserRow({
     <>
       <tr className="user-row">
         <td className="user-cell" data-label="用户">
-          <div className="user-summary">
-            <div className="user-avatar" aria-hidden="true">{initials}</div>
-            <div className="user-identity">
-              <strong>{user.displayName}</strong>
-              <div className="user-meta-row">
-                <span className="muted user-handle">@{user.username}</span>
-                {user.isAdmin && (
-                  <span className="user-chip">
-                    <Shield size={14} />
-                    系统管理员
-                  </span>
-                )}
-              </div>
-            </div>
+          <div className="user-identity">
+            <strong>{user.displayName}</strong>
+            <span className="muted user-handle">@{user.username}</span>
           </div>
         </td>
         <td className="user-status-cell" data-label="状态">
           <UserStateBadge status={user.status} />
         </td>
         <td className="user-role-cell" data-label="角色">
-          {user.isAdmin ? (
-            <span className="admin-role-label">
-              <Shield size={14} />
-              系统管理员
-            </span>
-          ) : (
-            <span>{user.role?.name ?? '无角色'}</span>
-          )}
+          {user.isAdmin ? '系统管理员' : (user.role?.name ?? '无角色')}
         </td>
         <td className="user-admin-cell" data-label="管理员">
-          <span>{user.isAdmin ? '是' : '否'}</span>
+          {user.isAdmin ? '是' : '否'}
         </td>
         <td className="user-actions-cell" data-label="操作">
           <button className="ghost compact" type="button" onClick={() => setManageOpen(true)}>
@@ -2326,12 +2483,12 @@ function UserRow({
 
 function UserStateBadge({ status }: { status: User['status'] }) {
   const config: Record<User['status'], { label: string; tone: string }> = {
-    ACTIVE: { label: 'ACTIVE', tone: 'active' },
-    PENDING: { label: 'PENDING', tone: 'pending' },
-    DISABLED: { label: 'DISABLED', tone: 'disabled' }
+    ACTIVE: { label: '正常', tone: 'active' },
+    PENDING: { label: '待审核', tone: 'pending' },
+    DISABLED: { label: '已禁用', tone: 'disabled' }
   };
   const current = config[status];
-  return <span className={`user-state-badge ${current.tone}`}>{current.label}</span>;
+  return <span className={`user-status-text ${current.tone}`}>{current.label}</span>;
 }
 
 function PageHeader({ title, action }: { title: string; action?: React.ReactNode }) {
@@ -2353,7 +2510,7 @@ function InfoBlock({ title, value, tone }: { title: string; value: string | null
   return (
     <div className={tone ? `info-block info-block-${tone}` : 'info-block'}>
       <strong>{title}</strong>
-      <p>{value}</p>
+      <MarkdownContent text={value} className="info-block-body" />
     </div>
   );
 }

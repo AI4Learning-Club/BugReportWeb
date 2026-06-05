@@ -1,11 +1,11 @@
 ---
-description: 新功能开发约束（权限、响应式、页面组织、缓动动效、活动记录与撤销）— 详见 AGENTS.md
+description: 新功能开发约束（权限、响应式、页面组织、缓动动效、活动记录与撤销、API 文档同步）— 详见 AGENTS.md
 alwaysApply: true
 ---
 
 # BugReportWeb 功能开发约束
 
-实现或扩展本仓库功能前，**必须先阅读并对照**项目根目录 `AGENTS.md`。以下为必须遵守的五条原则与交付检查项。
+实现或扩展本仓库功能前，**必须先阅读并对照**项目根目录 `AGENTS.md`。以下为必须遵守的六条原则与交付检查项。
 
 ## 1. 权限
 
@@ -37,6 +37,13 @@ alwaysApply: true
 - 前端更新 `activityTitle`、`describeActivityContext` 与 `api.ts` 类型。
 - 用户可见的写入须提供**撤销或对称反向操作**（如人员：撤销负责人、退出相关人），并与权限、活动类型对齐。
 
+## 6. API 文档同步
+
+- 新增或变更前后端**交互流程**（端点、请求/响应、鉴权、业务规则、多步工作流）时，**同一交付**更新 API 文档，不得先合代码后补文档。
+- **必改**：`frontend/public/openapi.yaml`（路径、Schema、`x-permissions`、`x-service-rules`、示例）；与 Controller / Service 行为一致。
+- **按需改**：`frontend/public/content/api-guide.md`（工作流、撤销表、权限矩阵）；`frontend/public/content/ai-guide.md`（代理决策树）；`frontend/src/docs/permissionDocs.ts`（新权限）。
+- 新权限时 `permission-catalog.ts` 的 `apis` 须列出对应端点（见 §1）；仅改 UI 样式、不涉及 API 契约可跳过。
+
 ## 交付前自检
 
 - [ ] 新权限已接入角色管理（若适用）
@@ -44,6 +51,7 @@ alwaysApply: true
 - [ ] 复杂交互已优先放入弹窗（若适用）
 - [ ] 过渡 / 入场动画使用 `--ease-out` / `--ease-smooth` 与现有 keyframes（§4）
 - [ ] 写入有活动记录且可撤销
+- [ ] API 变更已同步 `openapi.yaml`；工作流 / 撤销 / 权限变更已更新 `api-guide.md`（及 `ai-guide.md`、`permissionDocs.ts`，若适用）
 - [ ] `backend` / `frontend` build 通过
 
 细节、文件路径与示例见 **AGENTS.md**。

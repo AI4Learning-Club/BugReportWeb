@@ -114,11 +114,6 @@
   letter-spacing: 0.01em;
 }
 
-.docs-brand-sub {
-  font-size: 0.72rem;
-  color: var(--docs-muted);
-}
-
 .docs-nav {
   display: flex;
   gap: 0.35rem;

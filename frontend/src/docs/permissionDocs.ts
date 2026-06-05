@@ -55,8 +55,21 @@ export const PERMISSION_DOCS: PermissionDoc[] = [
   {
     code: 'UPDATE_FEATURE',
     group: '功能管理',
-    summary: '编辑功能与状态',
-    apis: ['PATCH /features/:id', 'PATCH /features/:id/status']
+    summary: '编辑功能、状态与实现项',
+    apis: [
+      'PATCH /features/:id',
+      'PATCH /features/:id/status',
+      'POST /features/:id/implementation-items',
+      'PATCH /features/:id/implementation-items/:itemId',
+      'PATCH /features/:id/implementation-items/:itemId/status',
+      'DELETE /features/:id/implementation-items/:itemId'
+    ]
+  },
+  {
+    code: 'ADD_FEATURE_EVIDENCE',
+    group: '功能管理',
+    summary: '上传功能截图',
+    apis: ['POST /features/:id/screenshots', 'DELETE /features/:id/screenshots/:screenshotId']
   },
   {
     code: 'DELETE_FEATURE',

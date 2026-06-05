@@ -13,8 +13,7 @@ export default function DocsPage() {
           <div className="docs-brand">
             <LinkBrand />
             <div className="docs-brand-text">
-              <span className="docs-brand-title">BugReportWeb API</span>
-              <span className="docs-brand-sub">直连后端 · v1.0</span>
+              <span className="docs-brand-title">SystemController</span>
             </div>
           </div>
           <nav className="docs-nav" aria-label="文档导航">

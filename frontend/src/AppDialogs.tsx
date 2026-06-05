@@ -1,6 +1,16 @@
 import { CheckCircle2, Plus, Save, Trash2, Upload } from 'lucide-react';
 import { FormEvent, useState } from 'react';
-import { BugActivity, BugStatus, FeatureActivity, FeatureStatus, Role, User } from './api';
+import {
+  AssignableUser,
+  BugActivity,
+  BugStatus,
+  FeatureActivity,
+  FeatureStatus,
+  ImplementationItem,
+  ImplementationItemStatus,
+  Role,
+  User
+} from './api';
 import { ActionModal, FormModal } from './ModalShell';
 import { RuntimeInfoDraft, RuntimeInfoFields } from './RuntimeInfoFields';
 import {
@@ -54,10 +64,12 @@ export function RuntimeInfoDialog({
 }
 
 export function EvidenceUploadDialog({
+  entityLabel = 'bug',
   submitting,
   onClose,
   onConfirm
 }: {
+  entityLabel?: 'bug' | 'feature';
   submitting: boolean;
   onClose: () => void;
   onConfirm: (file: File) => void;
@@ -73,7 +85,7 @@ export function EvidenceUploadDialog({
   return (
     <ActionModal
       title="上传截图"
-      description="选择图片文件作为 bug 证据"
+      description={`选择图片文件作为${entityLabel === 'feature' ? '功能' : 'bug'}证据`}
       titleId="evidence-upload-modal-title"
       submitting={submitting}
       onClose={onClose}
@@ -260,6 +272,224 @@ export function FeatureStatusDialog({
           value={note}
           onChange={(event) => setNote(event.target.value)}
         />
+      </label>
+    </ActionModal>
+  );
+}
+
+const IMPLEMENTATION_ITEM_STATUS_LABELS: Record<ImplementationItemStatus, string> = {
+  NOT_STARTED: '未开始',
+  IN_PROGRESS: '进行中',
+  DONE: '已完成'
+};
+
+function toDatetimeLocalValue(iso: string | null | undefined) {
+  if (!iso) {
+    return '';
+  }
+  const date = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromDatetimeLocalValue(value: string) {
+  return value ? new Date(value).toISOString() : null;
+}
+
+export function FeatureScheduleDialog({
+  plannedStartAt,
+  plannedEndAt,
+  submitting,
+  onClose,
+  onConfirm
+}: {
+  plannedStartAt: string | null;
+  plannedEndAt: string | null;
+  submitting: boolean;
+  onClose: () => void;
+  onConfirm: (payload: { plannedStartAt: string | null; plannedEndAt: string | null }) => void;
+}) {
+  const [start, setStart] = useState(toDatetimeLocalValue(plannedStartAt));
+  const [end, setEnd] = useState(toDatetimeLocalValue(plannedEndAt));
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (submitting) return;
+    onConfirm({
+      plannedStartAt: fromDatetimeLocalValue(start),
+      plannedEndAt: fromDatetimeLocalValue(end)
+    });
+  }
+
+  return (
+    <ActionModal
+      title="编辑整体计划"
+      description="设置功能级别的计划开始与结束时间；若已拆分实现项，留空可由子项自动汇总。"
+      titleId="feature-schedule-modal-title"
+      submitting={submitting}
+      onClose={onClose}
+      onSubmit={submit}
+      footer={(
+        <>
+          <button className="ghost" type="button" onClick={onClose} disabled={submitting}>取消</button>
+          <button className="primary" type="submit" disabled={submitting}>
+            <Save size={16} />
+            {submitting ? '保存中...' : '保存'}
+          </button>
+        </>
+      )}
+    >
+      <label>
+        计划开始
+        <input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
+      </label>
+      <label>
+        计划结束
+        <input type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
+      </label>
+    </ActionModal>
+  );
+}
+
+export function ImplementationItemDialog({
+  mode,
+  item,
+  assignableUsers,
+  submitting,
+  onClose,
+  onConfirm
+}: {
+  mode: 'create' | 'edit';
+  item?: ImplementationItem;
+  assignableUsers: AssignableUser[];
+  submitting: boolean;
+  onClose: () => void;
+  onConfirm: (payload: {
+    title: string;
+    note: string | null;
+    plannedStartAt: string | null;
+    plannedEndAt: string | null;
+    ownerId: string | null;
+  }) => void;
+}) {
+  const [title, setTitle] = useState(item?.title ?? '');
+  const [note, setNote] = useState(item?.note ?? '');
+  const [plannedStartAt, setPlannedStartAt] = useState(toDatetimeLocalValue(item?.plannedStartAt));
+  const [plannedEndAt, setPlannedEndAt] = useState(toDatetimeLocalValue(item?.plannedEndAt));
+  const [ownerId, setOwnerId] = useState(item?.owner?.id ?? '');
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (submitting || !title.trim()) return;
+    onConfirm({
+      title: title.trim(),
+      note: note.trim() || null,
+      plannedStartAt: fromDatetimeLocalValue(plannedStartAt),
+      plannedEndAt: fromDatetimeLocalValue(plannedEndAt),
+      ownerId: ownerId || null
+    });
+  }
+
+  return (
+    <ActionModal
+      title={mode === 'create' ? '添加实现项' : '编辑实现项'}
+      description="为功能拆分里程碑并设置计划时间。"
+      titleId="implementation-item-modal-title"
+      submitting={submitting}
+      onClose={onClose}
+      onSubmit={submit}
+      footer={(
+        <>
+          <button className="ghost" type="button" onClick={onClose} disabled={submitting}>取消</button>
+          <button className="primary" type="submit" disabled={submitting || !title.trim()}>
+            <Save size={16} />
+            {submitting ? '保存中...' : '保存'}
+          </button>
+        </>
+      )}
+    >
+      <label>
+        名称
+        <input required value={title} onChange={(event) => setTitle(event.target.value)} />
+      </label>
+      <label>
+        说明
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} />
+      </label>
+      <div className="grid two">
+        <label>
+          计划开始
+          <input type="datetime-local" value={plannedStartAt} onChange={(event) => setPlannedStartAt(event.target.value)} />
+        </label>
+        <label>
+          计划结束
+          <input type="datetime-local" value={plannedEndAt} onChange={(event) => setPlannedEndAt(event.target.value)} />
+        </label>
+      </div>
+      <label>
+        负责人
+        <select value={ownerId} onChange={(event) => setOwnerId(event.target.value)}>
+          <option value="">未指定</option>
+          {assignableUsers.map((person) => (
+            <option key={person.id} value={person.id}>{person.displayName}</option>
+          ))}
+        </select>
+      </label>
+    </ActionModal>
+  );
+}
+
+export function ImplementationItemStatusDialog({
+  currentStatus,
+  submitting,
+  onClose,
+  onConfirm
+}: {
+  currentStatus: ImplementationItemStatus;
+  submitting: boolean;
+  onClose: () => void;
+  onConfirm: (status: ImplementationItemStatus, note: string) => void;
+}) {
+  const [nextStatus, setNextStatus] = useState<ImplementationItemStatus>(currentStatus);
+  const [note, setNote] = useState('');
+  const normalizedNote = note.trim();
+  const canSubmit = nextStatus !== currentStatus && Boolean(normalizedNote);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!canSubmit || submitting) return;
+    onConfirm(nextStatus, normalizedNote);
+  }
+
+  return (
+    <ActionModal
+      title="变更实现项状态"
+      description={`从${IMPLEMENTATION_ITEM_STATUS_LABELS[currentStatus]}变更为${IMPLEMENTATION_ITEM_STATUS_LABELS[nextStatus]}。`}
+      titleId="implementation-item-status-modal-title"
+      submitting={submitting}
+      onClose={onClose}
+      onSubmit={submit}
+      footer={(
+        <>
+          <button className="ghost" type="button" onClick={onClose} disabled={submitting}>取消</button>
+          <button className="primary" type="submit" disabled={!canSubmit || submitting}>
+            <CheckCircle2 size={16} />
+            {submitting ? '处理中...' : '确认变更'}
+          </button>
+        </>
+      )}
+    >
+      <label>
+        目标状态
+        <select value={nextStatus} onChange={(event) => setNextStatus(event.target.value as ImplementationItemStatus)}>
+          <option value="NOT_STARTED">未开始</option>
+          <option value="IN_PROGRESS">进行中</option>
+          <option value="DONE">已完成</option>
+        </select>
+      </label>
+      <label>
+        操作说明
+        <textarea required value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
     </ActionModal>
   );

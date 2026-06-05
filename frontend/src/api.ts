@@ -34,6 +34,7 @@ export type Permission =
   | 'UPDATE_FEATURE'
   | 'DELETE_FEATURE'
   | 'DELETE_FEATURE_ACTIVITY'
+  | 'ADD_FEATURE_EVIDENCE'
   | 'VIEW_STATS'
   | 'MANAGE_SYSTEMS'
   | 'MANAGE_ROLES'
@@ -74,6 +75,7 @@ export type TrackedSystem = {
 
 export type BugStatus = 'OPEN' | 'FIXED';
 export type FeatureStatus = 'PLANNED' | 'IN_PROGRESS' | 'DONE';
+export type ImplementationItemStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'DONE';
 
 export type PersonnelPatchBody = {
   ownerId?: string | null;
@@ -166,6 +168,12 @@ export type FeatureActivity = {
     | 'UPDATED'
     | 'STATUS_CHANGED'
     | 'DELETED'
+    | 'SCREENSHOT_ADDED'
+    | 'SCREENSHOT_REMOVED'
+    | 'IMPLEMENTATION_ITEM_ADDED'
+    | 'IMPLEMENTATION_ITEM_UPDATED'
+    | 'IMPLEMENTATION_ITEM_REMOVED'
+    | 'IMPLEMENTATION_ITEM_STATUS_CHANGED'
     | 'OWNER_CLAIMED'
     | 'OWNER_DELEGATED'
     | 'OWNER_REVOKED'
@@ -181,6 +189,22 @@ export type FeatureActivity = {
   actor: AssignableUser;
 };
 
+export type ImplementationItem = {
+  id: string;
+  featureId: string;
+  sortOrder: number;
+  title: string;
+  note: string | null;
+  status: ImplementationItemStatus;
+  plannedStartAt: string | null;
+  plannedEndAt: string | null;
+  actualStartAt: string | null;
+  completedAt: string | null;
+  owner: AssignableUser | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type FeatureItem = {
   id: string;
   title: string;
@@ -193,6 +217,14 @@ export type FeatureItem = {
   relatedUsers: AssignableUser[];
   completedBy: AssignableUser | null;
   completedAt: string | null;
+  plannedStartAt: string | null;
+  plannedEndAt: string | null;
+  effectivePlannedStartAt: string | null;
+  effectivePlannedEndAt: string | null;
+  progressPercent: number | null;
+  implementationItemCount: number;
+  implementationItemDoneCount: number;
+  screenshotCount: number;
   deletedBy: AssignableUser | null;
   deletedAt: string | null;
   deleteReason: string | null;
@@ -201,7 +233,67 @@ export type FeatureItem = {
 };
 
 export type FeatureDetail = FeatureItem & {
+  screenshots?: Screenshot[];
+  implementationItems?: ImplementationItem[];
   activities: FeatureActivity[];
+};
+
+export function normalizeFeatureItem(feature: FeatureItem | FeatureDetail): FeatureItem {
+  const detail = feature as FeatureDetail;
+  const items = detail.implementationItems ?? [];
+  const doneCount =
+    feature.implementationItemDoneCount ??
+    items.filter((item) => item.status === 'DONE').length;
+  const itemCount = feature.implementationItemCount ?? items.length;
+
+  return {
+    ...feature,
+    screenshotCount: feature.screenshotCount ?? detail.screenshots?.length ?? 0,
+    implementationItemCount: itemCount,
+    implementationItemDoneCount: doneCount,
+    progressPercent:
+      feature.progressPercent ??
+      (itemCount > 0 ? Math.round((doneCount / itemCount) * 100) : null),
+    plannedStartAt: feature.plannedStartAt ?? null,
+    plannedEndAt: feature.plannedEndAt ?? null,
+    effectivePlannedStartAt: feature.effectivePlannedStartAt ?? feature.plannedStartAt ?? null,
+    effectivePlannedEndAt: feature.effectivePlannedEndAt ?? feature.plannedEndAt ?? null
+  };
+}
+
+export function normalizeFeatureDetail(feature: FeatureDetail): FeatureDetail {
+  const items = feature.implementationItems ?? [];
+  const screenshots = feature.screenshots ?? [];
+  const normalized = normalizeFeatureItem({
+    ...feature,
+    implementationItems: items,
+    screenshots
+  });
+
+  return {
+    ...normalized,
+    screenshots,
+    implementationItems: items,
+    activities: feature.activities ?? []
+  };
+}
+
+export type FeatureGanttEntry = Pick<
+  FeatureItem,
+  | 'id'
+  | 'title'
+  | 'status'
+  | 'system'
+  | 'owner'
+  | 'plannedStartAt'
+  | 'plannedEndAt'
+  | 'effectivePlannedStartAt'
+  | 'effectivePlannedEndAt'
+  | 'progressPercent'
+  | 'implementationItemCount'
+  | 'implementationItemDoneCount'
+> & {
+  implementationItems: ImplementationItem[];
 };
 
 export type Screenshot = {
@@ -284,6 +376,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'UPDATE_FEATURE',
   'DELETE_FEATURE',
   'DELETE_FEATURE_ACTIVITY',
+  'ADD_FEATURE_EVIDENCE',
   'VIEW_STATS',
   'MANAGE_SYSTEMS',
   'MANAGE_ROLES',
@@ -304,6 +397,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   UPDATE_FEATURE: '更新功能',
   DELETE_FEATURE: '删除功能',
   DELETE_FEATURE_ACTIVITY: '删除功能活动记录',
+  ADD_FEATURE_EVIDENCE: '补充功能证据',
   VIEW_STATS: '查看 KPI 统计',
   MANAGE_SYSTEMS: '系统管理',
   MANAGE_ROLES: '角色管理',

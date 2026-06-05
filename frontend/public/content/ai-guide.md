@@ -103,7 +103,8 @@ const user = await meRes.json();
 | `DELETE_BUG` | 删除 Bug | `POST /bugs/:id/delete` |
 | `DELETE_BUG_ACTIVITY` | 删除 Bug 活动 | `DELETE /bugs/:id/activities/:activityId` |
 | `CREATE_FEATURE` | 登记功能 | `POST /features` |
-| `UPDATE_FEATURE` | 更新功能 | `PATCH /features/:id`, `PATCH /features/:id/status`, `POST /features/:id/personnel/join` |
+| `UPDATE_FEATURE` | 更新功能 / 实现项 | `PATCH /features/:id`, `.../status`, `.../implementation-items*` |
+| `ADD_FEATURE_EVIDENCE` | 功能截图 | `POST/DELETE /features/:id/screenshots` |
 | `DELETE_FEATURE` | 删除功能 | `POST /features/:id/delete` |
 | `DELETE_FEATURE_ACTIVITY` | 删除功能活动 | `DELETE /features/:id/activities/:activityId` |
 | `VIEW_STATS` | 查看 KPI | `GET /stats/kpi` |
@@ -249,13 +250,20 @@ curl -s -X POST "http://localhost:3001/bugs/<bug-id>/retests" \
 
 ### 3.7 功能需求全生命周期
 
+推荐顺序：创建功能 → 拆分实现项（计划时间）→ 上传截图 → 按项推进状态 → 必要时标记功能 DONE。
+
 | 步骤 | 端点 | 权限 |
 |------|------|------|
 | 创建 | `POST /features` | `CREATE_FEATURE` |
 | 编辑 | `PATCH /features/:id` | `UPDATE_FEATURE` + 创建者或 admin |
 | 改状态 | `PATCH /features/:id/status` | `UPDATE_FEATURE` |
+| 截图 | `POST /features/:id/screenshots` | `ADD_FEATURE_EVIDENCE` |
+| 实现项 CRUD | `/features/:id/implementation-items*` | `UPDATE_FEATURE` |
+| 甘特图 | `GET /features/gantt` | JWT |
 | 认领负责人 | `POST /features/:id/personnel/claim-owner` | `BECOME_ITEM_OWNER` |
 | 软删除 | `POST /features/:id/delete` | `DELETE_FEATURE` |
+
+变更实现项状态须带 `note`；撤销通过对称 `PATCH .../status` 改回先前状态，勿删活动记录。
 
 ### 3.8 管理类操作（高权限）
 
