@@ -6,7 +6,9 @@ import {
   Role,
   api
 } from './api';
+import { readError } from './errorUtils';
 import { ActionModal, FormModal, useModalClose } from './ModalShell';
+import { notifyError } from './ToastProvider';
 
 type RoleAdminPanelProps = {
   permissions: PermissionDefinition[];
@@ -226,10 +228,8 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
   const [grantSearchField, setGrantSearchField] = useState<SearchField>('zhName');
   const [draftPermissions, setDraftPermissions] = useState<Permission[]>([]);
   const [focusedPermissionCode, setFocusedPermissionCode] = useState<Permission | ''>('');
-  const [localError, setLocalError] = useState('');
   const [roleDeleteOpen, setRoleDeleteOpen] = useState(false);
   const [roleDeleteSubmitting, setRoleDeleteSubmitting] = useState(false);
-  const [roleDeleteError, setRoleDeleteError] = useState('');
 
   const grantModalClose = useModalClose(() => {
     setGrantOpen(false);
@@ -333,10 +333,9 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
   async function createRole(name: string) {
     const trimmed = name.trim();
     if (!trimmed) {
-      setLocalError('角色名称不能为空');
+      notifyError('角色名称不能为空');
       return;
     }
-    setLocalError('');
     try {
       await onMutate(() =>
         api('/roles', {
@@ -355,10 +354,9 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
     }
     const trimmed = name.trim();
     if (!trimmed) {
-      setLocalError('角色名称不能为空');
+      notifyError('角色名称不能为空');
       return;
     }
-    setLocalError('');
     try {
       await onMutate(() =>
         api(`/roles/${selectedRole.id}`, {
@@ -375,20 +373,18 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
       return;
     }
     setRoleDeleteOpen(true);
-    setRoleDeleteError('');
   }
 
   async function confirmRemoveRole() {
     if (!selectedRole) {
       return;
     }
-    setRoleDeleteError('');
     setRoleDeleteSubmitting(true);
     try {
       await onMutate(() => api(`/roles/${selectedRole.id}`, { method: 'DELETE' }));
       setRoleDeleteOpen(false);
     } catch (error) {
-      setRoleDeleteError(error instanceof Error ? error.message : '删除角色失败');
+      notifyError(readError(error));
     } finally {
       setRoleDeleteSubmitting(false);
     }
@@ -396,7 +392,7 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
 
   function openGrantModal(code?: Permission) {
     if (!selectedRole) {
-      setLocalError('请先选择角色');
+      notifyError('请先选择角色');
       return;
     }
     const currentPermissions = [...selectedRole.permissions];
@@ -417,7 +413,7 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
 
   function openJsonModal(tab: JsonModalTab) {
     if (!selectedRole) {
-      setLocalError('请先选择角色');
+      notifyError('请先选择角色');
       return;
     }
     setJsonTab(tab);
@@ -438,7 +434,6 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
       ? uniquePermissions([...selectedRole.permissions, code])
       : selectedRole.permissions.filter((permission) => permission !== code);
 
-    setLocalError('');
     try {
       await onMutate(() =>
         api(`/roles/${selectedRole.id}`, {
@@ -463,7 +458,6 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
       return;
     }
 
-    setLocalError('');
     try {
       await onMutate(() =>
         api(`/roles/${selectedRole.id}`, {
@@ -485,7 +479,6 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
 
     try {
       const nextPermissions = parsePermissionScopeJson(jsonDraft, permissionViews);
-      setLocalError('');
       await onMutate(() =>
         api(`/roles/${selectedRole.id}`, {
           method: 'PATCH',
@@ -497,7 +490,7 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
       );
       closeJsonModal();
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'JSON 导入失败');
+      notifyError(readError(error));
     }
   }
 
@@ -511,9 +504,8 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
   function formatJsonDraft() {
     try {
       setJsonDraft(JSON.stringify(JSON.parse(jsonDraft), null, 2));
-      setLocalError('');
     } catch {
-      setLocalError('当前 JSON 无法格式化，请先修正格式');
+      notifyError('当前 JSON 无法格式化，请先修正格式');
     }
   }
 
@@ -569,7 +561,6 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
           </button>
         </div>
 
-        {localError && <p className="error">{localError}</p>}
       </section>
 
       <section className="panel permission-table-panel">
@@ -919,7 +910,6 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
           onClose={() => {
             if (!roleDeleteSubmitting) {
               setRoleDeleteOpen(false);
-              setRoleDeleteError('');
             }
           }}
           actionModal={false}
@@ -932,7 +922,6 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
                 onClick={() => {
                   if (!roleDeleteSubmitting) {
                     setRoleDeleteOpen(false);
-                    setRoleDeleteError('');
                   }
                 }}
               >
@@ -950,7 +939,6 @@ export function RoleAdminPanel({ permissions, roles, onMutate }: RoleAdminPanelP
             <strong>{selectedRole.name}</strong>
           </div>
           <p className="delete-warning">请确认你要删除这个角色。此操作不会删除用户，但会影响角色配置。</p>
-          {roleDeleteError && <p className="error">{roleDeleteError}</p>}
         </ActionModal>
       )}
       {createRoleOpen && (

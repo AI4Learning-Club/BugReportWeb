@@ -81,7 +81,7 @@ export class FeaturesController {
   @Permissions(Permission.UPDATE_FEATURE)
   updateStatus(
     @Param('id') id: string,
-    @Body() body: { status?: FeatureStatus },
+    @Body() body: { status?: FeatureStatus; note?: string },
     @Req() request: RequestWithUser
   ) {
     return this.featuresService.updateStatus(id, body, request.user);

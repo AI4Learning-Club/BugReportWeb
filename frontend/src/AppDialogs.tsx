@@ -1,9 +1,10 @@
 import { CheckCircle2, Plus, Save, Trash2, Upload } from 'lucide-react';
 import { FormEvent, useState } from 'react';
-import { BugActivity, BugStatus, FeatureActivity, FeatureStatus, Role, TrackedSystem, User } from './api';
+import { BugActivity, BugStatus, FeatureActivity, FeatureStatus, Role, User } from './api';
 import { ActionModal, FormModal } from './ModalShell';
 import { RuntimeInfoDraft, RuntimeInfoFields } from './RuntimeInfoFields';
 import {
+  ActivityDetailContent,
   ActivityItemBody,
   ItemActivity,
   ItemActivityKind,
@@ -14,12 +15,10 @@ import {
 
 export function RuntimeInfoDialog({
   submitting,
-  error,
   onClose,
   onConfirm
 }: {
   submitting: boolean;
-  error?: string;
   onClose: () => void;
   onConfirm: (payload: RuntimeInfoDraft) => void;
 }) {
@@ -50,19 +49,16 @@ export function RuntimeInfoDialog({
       )}
     >
       <RuntimeInfoFields value={runtime} onChange={setRuntime} />
-      {error && <p className="error">{error}</p>}
     </ActionModal>
   );
 }
 
 export function EvidenceUploadDialog({
   submitting,
-  error,
   onClose,
   onConfirm
 }: {
   submitting: boolean;
-  error?: string;
   onClose: () => void;
   onConfirm: (file: File) => void;
 }) {
@@ -97,7 +93,6 @@ export function EvidenceUploadDialog({
         <input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
       </label>
       {file && <p className="muted">已选：{file.name}</p>}
-      {error && <p className="error">{error}</p>}
     </ActionModal>
   );
 }
@@ -107,13 +102,15 @@ export function ActivityListDialog({
   kind,
   canDeleteActivity,
   onClose,
-  onDeleteActivity
+  onDeleteActivity,
+  onOpenDetail
 }: {
   activities: ItemActivity[];
   kind: ItemActivityKind;
   canDeleteActivity: boolean;
   onClose: () => void;
   onDeleteActivity: (activity: ItemActivity) => void;
+  onOpenDetail: (activity: ItemActivity) => void;
 }) {
   return (
     <FormModal
@@ -133,10 +130,53 @@ export function ActivityListDialog({
             activity={activity}
             kind={kind}
             showDelete={canDeleteActivity}
-            onDelete={() => onDeleteActivity(activity)}
+            onDelete={(event) => {
+              event.stopPropagation();
+              onDeleteActivity(activity);
+            }}
+            onOpenDetail={() => onOpenDetail(activity)}
           />
         ))}
         {activities.length === 0 && <p className="muted">暂无活动记录</p>}
+      </div>
+    </FormModal>
+  );
+}
+
+export function ActivityDetailDialog({
+  activity,
+  kind,
+  canDeleteActivity,
+  onClose,
+  onDelete
+}: {
+  activity: ItemActivity;
+  kind: ItemActivityKind;
+  canDeleteActivity: boolean;
+  onClose: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <FormModal
+      title={activityTitle(activity, kind)}
+      description={`${activity.actor.displayName} · ${formatDateTime(activity.createdAt)}`}
+      titleId="activity-detail-modal-title"
+      onClose={onClose}
+      modalClassName="activity-detail-modal"
+      footer={(
+        <>
+          {canDeleteActivity && onDelete && (
+            <button className="ghost danger" type="button" onClick={onDelete}>
+              <Trash2 size={16} />
+              删除此记录
+            </button>
+          )}
+          <button className="ghost" type="button" onClick={onClose}>关闭</button>
+        </>
+      )}
+    >
+      <div className="activity-detail-modal-body">
+        <ActivityDetailContent activity={activity} kind={kind} />
       </div>
     </FormModal>
   );
@@ -148,31 +188,44 @@ const FEATURE_STATUS_LABELS: Record<FeatureStatus, string> = {
   DONE: '已完成'
 };
 
+function featureStatusNotePlaceholder(nextStatus: FeatureStatus) {
+  switch (nextStatus) {
+    case 'PLANNED':
+      return '填写退回规划的原因或后续安排';
+    case 'IN_PROGRESS':
+      return '填写开始推进的说明或当前进展';
+    case 'DONE':
+      return '填写完成说明、交付范围或验证方式';
+  }
+}
+
 export function FeatureStatusDialog({
   currentStatus,
   submitting,
-  error,
   onClose,
   onConfirm
 }: {
   currentStatus: FeatureStatus;
   submitting: boolean;
-  error?: string;
   onClose: () => void;
-  onConfirm: (status: FeatureStatus) => void;
+  onConfirm: (status: FeatureStatus, note: string) => void;
 }) {
   const [nextStatus, setNextStatus] = useState<FeatureStatus>(currentStatus);
+  const [note, setNote] = useState('');
+  const normalizedNote = note.trim();
+  const statusChanged = nextStatus !== currentStatus;
+  const canSubmit = statusChanged && Boolean(normalizedNote);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (submitting || nextStatus === currentStatus) return;
-    onConfirm(nextStatus);
+    if (!canSubmit || submitting) return;
+    onConfirm(nextStatus, normalizedNote);
   }
 
   return (
     <ActionModal
       title="变更功能状态"
-      description="确认后将更新功能的当前状态"
+      description={`填写操作说明后，将功能从${FEATURE_STATUS_LABELS[currentStatus]}变更为${FEATURE_STATUS_LABELS[nextStatus]}。`}
       titleId="feature-status-modal-title"
       submitting={submitting}
       onClose={onClose}
@@ -180,7 +233,7 @@ export function FeatureStatusDialog({
       footer={(
         <>
           <button className="ghost" type="button" onClick={onClose} disabled={submitting}>取消</button>
-          <button className="primary" type="submit" disabled={submitting || nextStatus === currentStatus}>
+          <button className="primary" type="submit" disabled={!canSubmit || submitting}>
             <CheckCircle2 size={16} />
             {submitting ? '处理中...' : '确认变更'}
           </button>
@@ -199,19 +252,25 @@ export function FeatureStatusDialog({
           <option value="DONE">已完成</option>
         </select>
       </label>
-      {error && <p className="error">{error}</p>}
+      <label>
+        操作说明
+        <textarea
+          autoFocus
+          placeholder={featureStatusNotePlaceholder(nextStatus)}
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+        />
+      </label>
     </ActionModal>
   );
 }
 
 export function CreateSystemDialog({
   submitting,
-  error,
   onClose,
   onConfirm
 }: {
   submitting: boolean;
-  error?: string;
   onClose: () => void;
   onConfirm: (payload: { name: string; description: string; owner: string; versionInfo: string }) => void;
 }) {
@@ -245,7 +304,6 @@ export function CreateSystemDialog({
       <label>负责人<input value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} /></label>
       <label>版本信息<input value={form.versionInfo} onChange={(event) => setForm({ ...form, versionInfo: event.target.value })} /></label>
       <label>说明<textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-      {error && <p className="error">{error}</p>}
     </ActionModal>
   );
 }
@@ -257,7 +315,6 @@ export function ConfirmDeleteDialog({
   targetName,
   warning,
   submitting,
-  error,
   confirmLabel,
   onClose,
   onConfirm
@@ -268,7 +325,6 @@ export function ConfirmDeleteDialog({
   targetName: string;
   warning?: string;
   submitting: boolean;
-  error?: string;
   confirmLabel: string;
   onClose: () => void;
   onConfirm: () => void;
@@ -295,7 +351,6 @@ export function ConfirmDeleteDialog({
         <strong>{targetName}</strong>
       </div>
       {warning && <p className="delete-warning">{warning}</p>}
-      {error && <p className="error">{error}</p>}
     </ActionModal>
   );
 }
@@ -304,7 +359,6 @@ export function UserManageDialog({
   user,
   roles,
   submitting,
-  error,
   onClose,
   onSaveDisplayName,
   onRoleChange,
@@ -315,7 +369,6 @@ export function UserManageDialog({
   user: User;
   roles: Role[];
   submitting: boolean;
-  error?: string;
   onClose: () => void;
   onSaveDisplayName: (displayName: string) => void;
   onRoleChange: (roleId: string | null) => void;
@@ -406,7 +459,6 @@ export function UserManageDialog({
             </button>
           )}
         </div>
-        {error && <p className="error">{error}</p>}
       </form>
     </FormModal>
   );
@@ -415,7 +467,6 @@ export function UserManageDialog({
 export function BugStatusDialog({
   actionLabel,
   currentStatus,
-  error,
   nextStatus,
   submitting,
   onCancel,
@@ -423,7 +474,6 @@ export function BugStatusDialog({
 }: {
   actionLabel: string;
   currentStatus: BugStatus;
-  error?: string;
   nextStatus: BugStatus;
   submitting: boolean;
   onCancel: () => void;
@@ -470,23 +520,24 @@ export function BugStatusDialog({
           onChange={(event) => setNote(event.target.value)}
         />
       </label>
-      {error && <p className="error">{error}</p>}
     </ActionModal>
   );
 }
 
 export function BugDeleteDialog({
-  error,
   mode,
   submitting,
   title,
+  entityName = 'bug',
+  reasonPlaceholder = '例如重复登记、误报或已合并到其他 bug',
   onCancel,
   onConfirm
 }: {
-  error?: string;
   mode: 'soft' | 'permanent';
   submitting: boolean;
   title: string;
+  entityName?: string;
+  reasonPlaceholder?: string;
   onCancel: () => void;
   onConfirm: (reason: string) => void;
 }) {
@@ -503,8 +554,8 @@ export function BugDeleteDialog({
 
   return (
     <ActionModal
-      title={isPermanent ? '彻底删除 bug' : '移入回收站'}
-      description={isPermanent ? '此操作会永久删除数据，删除后无法恢复。' : '删除后 bug 会进入回收站，管理员仍可彻底删除。'}
+      title={isPermanent ? `彻底删除${entityName}` : '移入回收站'}
+      description={isPermanent ? '此操作会永久删除数据，删除后无法恢复。' : `删除后${entityName}会进入回收站，管理员仍可彻底删除。`}
       titleId="bug-delete-modal-title"
       submitting={submitting}
       onClose={onCancel}
@@ -520,36 +571,33 @@ export function BugDeleteDialog({
       )}
     >
       <div className="delete-target">
-        <span>目标 bug</span>
+        <span>目标{entityName}</span>
         <strong>{title}</strong>
       </div>
       {isPermanent ? (
-        <p className="delete-warning">请确认你要彻底删除这条 bug。该操作不会进入回收站，也不能撤销。</p>
+        <p className="delete-warning">请确认你要彻底删除这条{entityName}。该操作不会进入回收站，也不能撤销。</p>
       ) : (
         <label>
           删除原因
           <textarea
             autoFocus
-            placeholder="例如重复登记、误报或已合并到其他 bug"
+            placeholder={reasonPlaceholder}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
           />
         </label>
       )}
-      {error && <p className="error">{error}</p>}
     </ActionModal>
   );
 }
 
 export function BugActivityDeleteDialog({
   activity,
-  error,
   submitting,
   onCancel,
   onConfirm
 }: {
   activity: BugActivity;
-  error?: string;
   submitting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -558,7 +606,6 @@ export function BugActivityDeleteDialog({
     <ItemActivityDeleteDialog
       activity={activity}
       kind="bug"
-      error={error}
       submitting={submitting}
       onCancel={onCancel}
       onConfirm={onConfirm}
@@ -568,13 +615,11 @@ export function BugActivityDeleteDialog({
 
 export function FeatureActivityDeleteDialog({
   activity,
-  error,
   submitting,
   onCancel,
   onConfirm
 }: {
   activity: FeatureActivity;
-  error?: string;
   submitting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -583,7 +628,6 @@ export function FeatureActivityDeleteDialog({
     <ItemActivityDeleteDialog
       activity={activity}
       kind="feature"
-      error={error}
       submitting={submitting}
       onCancel={onCancel}
       onConfirm={onConfirm}
@@ -594,14 +638,12 @@ export function FeatureActivityDeleteDialog({
 function ItemActivityDeleteDialog({
   activity,
   kind,
-  error,
   submitting,
   onCancel,
   onConfirm
 }: {
   activity: ItemActivity;
   kind: ItemActivityKind;
-  error?: string;
   submitting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -635,7 +677,6 @@ function ItemActivityDeleteDialog({
         </span>
       </div>
       {activity.note && <p className="delete-warning">{activity.note}</p>}
-      {error && <p className="error">{error}</p>}
     </ActionModal>
   );
 }

@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   Archive,
   BarChart3,
+  BookOpen,
   Bug,
   CheckCircle2,
   ClipboardList,
@@ -39,6 +40,7 @@ import {
   hasPermission
 } from './api';
 import {
+  ActivityDetailDialog,
   ActivityListDialog,
   BugActivityDeleteDialog,
   BugDeleteDialog,
@@ -51,10 +53,13 @@ import {
   RuntimeInfoDialog,
   UserManageDialog
 } from './AppDialogs';
-import { activityTitle, formatDateTime } from './activityUtils';
+import { ActivityPanel, ItemActivity, formatDateTime } from './activityUtils';
 import { BugRetestDialog, PersonnelPanel } from './PersonnelPanel';
 import { RoleAdminPanel } from './RoleAdminPanel';
+import DocsPage from './docs/DocsPage';
 import { RuntimeInfoFields } from './RuntimeInfoFields';
+import { readError } from './errorUtils';
+import { notifyError } from './ToastProvider';
 
 type AuthContextValue = {
   user: User | null;
@@ -139,6 +144,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/docs/*" element={<DocsPage />} />
         <Route path="/" element={<Protected><Shell><Dashboard /></Shell></Protected>} />
         <Route path="/bugs/new" element={<Protected><Shell><NewBugPage /></Shell></Protected>} />
         <Route path="/bugs/:id/edit" element={<Protected><Shell><BugEditPage /></Shell></Protected>} />
@@ -180,6 +186,9 @@ function Shell({ children }: { children: React.ReactNode }) {
     if (path === '/features') {
       return location.pathname === '/features' || (location.pathname.startsWith('/features/') && location.pathname !== '/features/new');
     }
+    if (path === '/docs') {
+      return location.pathname === '/docs' || location.pathname.startsWith('/docs/');
+    }
     return location.pathname.startsWith(path);
   };
 
@@ -197,6 +206,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           {hasPermission(user, 'CREATE_FEATURE') && <Link className={isActive('/features/new') ? 'active' : undefined} to="/features/new"><Plus size={18} />登记功能</Link>}
           {hasPermission(user, 'VIEW_STATS') && <Link className={isActive('/stats') ? 'active' : undefined} to="/stats"><BarChart3 size={18} />KPI 统计</Link>}
           {canAdmin && <Link className={isActive('/admin') ? 'active' : undefined} to="/admin"><Settings size={18} />管理后台</Link>}
+          <Link className={isActive('/docs') ? 'active' : undefined} to="/docs"><BookOpen size={18} />API 文档</Link>
         </nav>
         <div className="profile">
           <div>
@@ -218,16 +228,14 @@ function LoginPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError('');
     try {
       await login(username, password);
       navigate('/');
     } catch (error) {
-      setError(readError(error));
+      notifyError(readError(error));
     }
   }
 
@@ -236,7 +244,6 @@ function LoginPage() {
       <form className="stack" onSubmit={submit}>
         <label>用户名<input value={username} onChange={(event) => setUsername(event.target.value)} /></label>
         <label>密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-        {error && <p className="error">{error}</p>}
         <button className="primary" type="submit">登录</button>
         <Link className="text-link" to="/register">注册账号</Link>
       </form>
@@ -248,11 +255,9 @@ function RegisterPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ username: '', displayName: '', password: '' });
   const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError('');
     setMessage('');
     try {
       const result = await api<{ message: string }>('/auth/register', {
@@ -261,7 +266,7 @@ function RegisterPage() {
       });
       setMessage(result.message);
     } catch (error) {
-      setError(readError(error));
+      notifyError(readError(error));
     }
   }
 
@@ -272,7 +277,6 @@ function RegisterPage() {
         <label>显示名<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} /></label>
         <label>密码<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
         {message && <p className="success">{message}</p>}
-        {error && <p className="error">{error}</p>}
         <button className="primary" type="submit">提交注册</button>
         <button className="ghost" type="button" onClick={() => navigate('/login')}>返回登录</button>
       </form>
@@ -294,7 +298,6 @@ function AuthFrame({ title, children }: { title: string; children: React.ReactNo
 
 function Dashboard() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [bugs, setBugs] = useState<BugItem[]>([]);
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
@@ -302,15 +305,12 @@ function Dashboard() {
   const [status, setStatus] = useState('');
   const [participantUserId, setParticipantUserId] = useState('');
   const [deleted, setDeleted] = useState<'active' | 'only' | 'all'>('active');
-  const [error, setError] = useState('');
   const [deleteDialog, setDeleteDialog] = useState<{ bug: BugItem; mode: 'soft' | 'permanent' } | null>(null);
-  const [deleteDialogError, setDeleteDialogError] = useState('');
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const canCreateBug = hasPermission(user, 'CREATE_BUG');
   const canViewRecycleBin = Boolean(user?.isAdmin);
 
   async function load() {
-    setError('');
     try {
       const params = new URLSearchParams();
       if (systemId) params.set('systemId', systemId);
@@ -319,7 +319,7 @@ function Dashboard() {
       if (participantUserId) params.set('participantUserId', participantUserId);
       setBugs(await api<BugItem[]>(`/bugs?${params.toString()}`));
     } catch (error) {
-      setError(readError(error));
+      notifyError(readError(error));
     }
   }
 
@@ -332,27 +332,18 @@ function Dashboard() {
     void load();
   }, [systemId, status, deleted, participantUserId]);
 
-  async function handleBugAction(bug: BugItem, action: string) {
-    if (action === 'edit') {
-      navigate(`/bugs/${bug.id}/edit`);
-      return;
-    }
+  function handleBugAction(bug: BugItem, action: 'delete' | 'permanent-delete') {
     if (action === 'delete') {
       setDeleteDialog({ bug, mode: 'soft' });
-      setDeleteDialogError('');
       return;
     }
-    if (action === 'permanent-delete') {
-      setDeleteDialog({ bug, mode: 'permanent' });
-      setDeleteDialogError('');
-    }
+    setDeleteDialog({ bug, mode: 'permanent' });
   }
 
   async function confirmDeleteDialog(reason: string) {
     if (!deleteDialog) {
       return;
     }
-    setDeleteDialogError('');
     setDeleteSubmitting(true);
     try {
       if (deleteDialog.mode === 'soft') {
@@ -363,7 +354,7 @@ function Dashboard() {
       setDeleteDialog(null);
       await load();
     } catch (error) {
-      setDeleteDialogError(readError(error));
+      notifyError(readError(error));
     } finally {
       setDeleteSubmitting(false);
     }
@@ -401,7 +392,6 @@ function Dashboard() {
           </select>
         )}
       </div>
-      {error && <p className="error">{error}</p>}
       <div className="table-wrap">
         <table>
           <thead>
@@ -428,7 +418,6 @@ function Dashboard() {
                 (user?.isAdmin || bug.creator.id === user?.id)
               );
               const canPermanentDeleteBug = Boolean(bug.deletedAt && user?.isAdmin);
-              const hasRowAction = canEditBug || canSoftDeleteBug || canPermanentDeleteBug;
               return (
                 <tr key={bug.id}>
                   <td data-label="标题"><Link className="row-link" to={`/bugs/${bug.id}`}>{bug.title}</Link></td>
@@ -454,20 +443,29 @@ function Dashboard() {
                   )}
                   <td data-label="操作">
                     <div className="actions bug-row-actions">
-                      <select
-                        className="action-select"
-                        value=""
-                        disabled={!hasRowAction}
-                        aria-label={`操作 bug ${bug.title}`}
-                        onChange={(event) => {
-                          void handleBugAction(bug, event.target.value);
-                        }}
-                      >
-                        <option value="">操作</option>
-                        {canEditBug && <option value="edit">编辑</option>}
-                        {canSoftDeleteBug && <option value="delete">删除</option>}
-                        {canPermanentDeleteBug && <option value="permanent-delete">彻底删除</option>}
-                      </select>
+                      {canEditBug && (
+                        <Link className="ghost compact" to={`/bugs/${bug.id}/edit`}><Pencil size={16} />编辑</Link>
+                      )}
+                      {canSoftDeleteBug && (
+                        <button
+                          className="ghost compact danger"
+                          type="button"
+                          onClick={() => handleBugAction(bug, 'delete')}
+                        >
+                          <Trash2 size={16} />
+                          删除
+                        </button>
+                      )}
+                      {canPermanentDeleteBug && (
+                        <button
+                          className="ghost compact danger"
+                          type="button"
+                          onClick={() => handleBugAction(bug, 'permanent-delete')}
+                        >
+                          <Archive size={16} />
+                          彻底删除
+                        </button>
+                      )}
                       <Link className="ghost compact" to={`/bugs/${bug.id}`}><Eye size={16} />详情</Link>
                     </div>
                   </td>
@@ -486,14 +484,12 @@ function Dashboard() {
       </div>
       {deleteDialog && (
         <BugDeleteDialog
-          error={deleteDialogError}
           mode={deleteDialog.mode}
           submitting={deleteSubmitting}
           title={deleteDialog.bug.title}
           onCancel={() => {
             if (!deleteSubmitting) {
               setDeleteDialog(null);
-              setDeleteDialogError('');
             }
           }}
           onConfirm={(reason) => void confirmDeleteDialog(reason)}
@@ -509,7 +505,6 @@ function NewBugPage() {
   const [selectedScreenshots, setSelectedScreenshots] = useState<Array<{ id: string; file: File; url: string }>>([]);
   const selectedScreenshotsRef = useRef(selectedScreenshots);
   const [runtimeInfos, setRuntimeInfos] = useState([{ title: '', environment: '', logText: '' }]);
-  const [error, setError] = useState('');
   const [form, setForm] = useState({
     systemId: '',
     title: '',
@@ -559,7 +554,6 @@ function NewBugPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError('');
     try {
       const bug = await api<BugItem>('/bugs', {
         method: 'POST',
@@ -575,7 +569,7 @@ function NewBugPage() {
       }
       navigate(`/bugs/${bug.id}`);
     } catch (error) {
-      setError(readError(error));
+      notifyError(readError(error));
     }
   }
 
@@ -648,7 +642,6 @@ function NewBugPage() {
             </div>
           ))}
         </section>
-        {error && <p className="error">{error}</p>}
         <button className="primary" type="submit"><Save size={16} />保存</button>
       </form>
     </>
@@ -658,31 +651,25 @@ function NewBugPage() {
 function BugDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
+  const [loadFailed, setLoadFailed] = useState(false);
   const [bug, setBug] = useState<BugDetail | null>(null);
-  const [error, setError] = useState('');
   const [activeRuntimeIndex, setActiveRuntimeIndex] = useState(0);
   const [retestDialogOpen, setRetestDialogOpen] = useState(false);
   const [retestDialogSubmitting, setRetestDialogSubmitting] = useState(false);
-  const [retestDialogError, setRetestDialogError] = useState('');
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [runtimeDialogSubmitting, setRuntimeDialogSubmitting] = useState(false);
-  const [runtimeDialogError, setRuntimeDialogError] = useState('');
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadDialogSubmitting, setUploadDialogSubmitting] = useState(false);
-  const [uploadDialogError, setUploadDialogError] = useState('');
   const [activityListOpen, setActivityListOpen] = useState(false);
+  const [activityDetailTarget, setActivityDetailTarget] = useState<ItemActivity | null>(null);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [statusDialogSubmitting, setStatusDialogSubmitting] = useState(false);
-  const [statusDialogError, setStatusDialogError] = useState('');
   const [softDeleteOpen, setSoftDeleteOpen] = useState(false);
   const [softDeleteSubmitting, setSoftDeleteSubmitting] = useState(false);
-  const [softDeleteError, setSoftDeleteError] = useState('');
   const [permanentDeleteOpen, setPermanentDeleteOpen] = useState(false);
   const [permanentDeleteSubmitting, setPermanentDeleteSubmitting] = useState(false);
-  const [permanentDeleteError, setPermanentDeleteError] = useState('');
   const [activityDeleteTarget, setActivityDeleteTarget] = useState<BugActivity | null>(null);
   const [activityDeleteSubmitting, setActivityDeleteSubmitting] = useState(false);
-  const [activityDeleteError, setActivityDeleteError] = useState('');
 
   async function load() {
     if (!id) return;
@@ -691,7 +678,7 @@ function BugDetailPage() {
   }
 
   useEffect(() => {
-    void load().catch((loadError) => setError(readError(loadError)));
+    void load().catch((loadError) => { setLoadFailed(true); notifyError(readError(loadError)); });
   }, [id]);
 
   useEffect(() => {
@@ -709,17 +696,16 @@ function BugDetailPage() {
   }, [activeRuntimeIndex, bug]);
 
   async function mutate(action: () => Promise<unknown>) {
-    setError('');
     try {
       await action();
       await load();
     } catch (actionError) {
-      setError(readError(actionError));
+      notifyError(readError(actionError));
     }
   }
 
   if (!bug) {
-    return <div>{error || '加载中...'}</div>;
+    return <div>{loadFailed ? '加载失败' : '加载中...'}</div>;
   }
 
   const canAddEvidence = hasPermission(user, 'ADD_BUG_EVIDENCE');
@@ -756,7 +742,6 @@ function BugDetailPage() {
                 type="button"
                 onClick={() => {
                   setStatusDialogOpen(true);
-                  setStatusDialogError('');
                 }}
               >
                 <CheckCircle2 size={16} />
@@ -769,7 +754,6 @@ function BugDetailPage() {
                 type="button"
                 onClick={() => {
                   setRetestDialogOpen(true);
-                  setRetestDialogError('');
                 }}
               >
                 提交复测
@@ -781,7 +765,6 @@ function BugDetailPage() {
                 type="button"
                 onClick={() => {
                   setSoftDeleteOpen(true);
-                  setSoftDeleteError('');
                 }}
               >
                 <Trash2 size={16} />
@@ -791,7 +774,6 @@ function BugDetailPage() {
           </div>
         )}
       />
-      <FloatingError message={error} />
       {bug.deletedAt && (
         <section className="panel deleted-banner">
           <div>
@@ -807,7 +789,6 @@ function BugDetailPage() {
               type="button"
               onClick={() => {
                 setPermanentDeleteOpen(true);
-                setPermanentDeleteError('');
               }}
             >
               <Archive size={16} />
@@ -869,7 +850,6 @@ function BugDetailPage() {
                     type="button"
                     onClick={() => {
                       setUploadDialogOpen(true);
-                      setUploadDialogError('');
                     }}
                   >
                     <Upload size={16} />上传截图
@@ -927,7 +907,6 @@ function BugDetailPage() {
                     type="button"
                     onClick={() => {
                       setRuntimeDialogOpen(true);
-                      setRuntimeDialogError('');
                     }}
                   >
                     <Plus size={16} />
@@ -975,52 +954,29 @@ function BugDetailPage() {
             </div>
           </section>
         </div>
-        <section className="panel bug-activity-panel">
-          <h2>活动记录</h2>
-          <div className="activity-list activity-list-summary">
-            {bug.activities.slice(0, 5).map((activity) => (
-              <article key={activity.id} className="activity-item">
-                <header>
-                  <div>
-                    <strong>{activityTitle(activity, 'bug')}</strong>
-                    <span>
-                      {activity.actor.displayName}
-                      {' · '}
-                      {formatDateTime(activity.createdAt)}
-                    </span>
-                  </div>
-                </header>
-                {activity.note && <p>{activity.note}</p>}
-              </article>
-            ))}
-            {bug.activities.length === 0 && <p className="muted">暂无活动记录</p>}
-          </div>
-          {bug.activities.length > 0 && (
-            <button className="ghost compact activity-view-all" type="button" onClick={() => setActivityListOpen(true)}>
-              查看全部活动 ({bug.activities.length})
-            </button>
-          )}
-        </section>
+        <ActivityPanel
+          activities={bug.activities}
+          kind="bug"
+          onOpenDetail={setActivityDetailTarget}
+          onViewAll={() => setActivityListOpen(true)}
+        />
       </section>
       {retestDialogOpen && (
         <BugRetestDialog
-          error={retestDialogError}
           submitting={retestDialogSubmitting}
           onClose={() => {
             if (!retestDialogSubmitting) {
               setRetestDialogOpen(false);
-              setRetestDialogError('');
             }
           }}
           onConfirm={async (payload) => {
-            setRetestDialogError('');
             setRetestDialogSubmitting(true);
             try {
               await api('/bugs/' + bug.id + '/retests', { method: 'POST', body: JSON.stringify(payload) });
               setRetestDialogOpen(false);
               await load();
             } catch (actionError) {
-              setRetestDialogError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setRetestDialogSubmitting(false);
             }
@@ -1029,23 +985,20 @@ function BugDetailPage() {
       )}
       {runtimeDialogOpen && (
         <RuntimeInfoDialog
-          error={runtimeDialogError}
           submitting={runtimeDialogSubmitting}
           onClose={() => {
             if (!runtimeDialogSubmitting) {
               setRuntimeDialogOpen(false);
-              setRuntimeDialogError('');
             }
           }}
           onConfirm={async (payload) => {
-            setRuntimeDialogError('');
             setRuntimeDialogSubmitting(true);
             try {
               await api('/bugs/' + bug.id + '/runtime-info', { method: 'POST', body: JSON.stringify(payload) });
               setRuntimeDialogOpen(false);
               await load();
             } catch (actionError) {
-              setRuntimeDialogError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setRuntimeDialogSubmitting(false);
             }
@@ -1054,16 +1007,13 @@ function BugDetailPage() {
       )}
       {uploadDialogOpen && (
         <EvidenceUploadDialog
-          error={uploadDialogError}
           submitting={uploadDialogSubmitting}
           onClose={() => {
             if (!uploadDialogSubmitting) {
               setUploadDialogOpen(false);
-              setUploadDialogError('');
             }
           }}
           onConfirm={async (file) => {
-            setUploadDialogError('');
             setUploadDialogSubmitting(true);
             try {
               const data = new FormData();
@@ -1072,7 +1022,7 @@ function BugDetailPage() {
               setUploadDialogOpen(false);
               await load();
             } catch (actionError) {
-              setUploadDialogError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setUploadDialogSubmitting(false);
             }
@@ -1085,28 +1035,41 @@ function BugDetailPage() {
           kind="bug"
           canDeleteActivity={canDeleteActivity}
           onClose={() => setActivityListOpen(false)}
+          onOpenDetail={setActivityDetailTarget}
           onDeleteActivity={(activity) => {
             setActivityListOpen(false);
             setActivityDeleteTarget(activity as BugActivity);
-            setActivityDeleteError('');
           }}
+        />
+      )}
+      {activityDetailTarget && (
+        <ActivityDetailDialog
+          activity={activityDetailTarget}
+          kind="bug"
+          canDeleteActivity={canDeleteActivity}
+          onClose={() => setActivityDetailTarget(null)}
+          onDelete={
+            canDeleteActivity
+              ? () => {
+                  setActivityDeleteTarget(activityDetailTarget as BugActivity);
+                  setActivityDetailTarget(null);
+                }
+              : undefined
+          }
         />
       )}
       {statusDialogOpen && (
         <BugStatusDialog
           actionLabel={statusActionLabel}
           currentStatus={bug.status}
-          error={statusDialogError}
           nextStatus={nextStatus}
           submitting={statusDialogSubmitting}
           onCancel={() => {
             if (!statusDialogSubmitting) {
               setStatusDialogOpen(false);
-              setStatusDialogError('');
             }
           }}
           onConfirm={async (note) => {
-            setStatusDialogError('');
             setStatusDialogSubmitting(true);
             try {
               await api('/bugs/' + bug.id + '/status', {
@@ -1116,7 +1079,7 @@ function BugDetailPage() {
               setStatusDialogOpen(false);
               await load();
             } catch (actionError) {
-              setStatusDialogError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setStatusDialogSubmitting(false);
             }
@@ -1125,18 +1088,15 @@ function BugDetailPage() {
       )}
       {softDeleteOpen && (
         <BugDeleteDialog
-          error={softDeleteError}
           mode="soft"
           submitting={softDeleteSubmitting}
           title={bug.title}
           onCancel={() => {
             if (!softDeleteSubmitting) {
               setSoftDeleteOpen(false);
-              setSoftDeleteError('');
             }
           }}
           onConfirm={async (reason) => {
-            setSoftDeleteError('');
             setSoftDeleteSubmitting(true);
             try {
               await api('/bugs/' + bug.id + '/delete', {
@@ -1146,7 +1106,7 @@ function BugDetailPage() {
               setSoftDeleteOpen(false);
               await load();
             } catch (actionError) {
-              setSoftDeleteError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setSoftDeleteSubmitting(false);
             }
@@ -1155,24 +1115,21 @@ function BugDetailPage() {
       )}
       {permanentDeleteOpen && (
         <BugDeleteDialog
-          error={permanentDeleteError}
           mode="permanent"
           submitting={permanentDeleteSubmitting}
           title={bug.title}
           onCancel={() => {
             if (!permanentDeleteSubmitting) {
               setPermanentDeleteOpen(false);
-              setPermanentDeleteError('');
             }
           }}
           onConfirm={async () => {
-            setPermanentDeleteError('');
             setPermanentDeleteSubmitting(true);
             try {
               await api(`/bugs/${bug.id}/permanent`, { method: 'DELETE' });
               window.location.href = '/';
             } catch (actionError) {
-              setPermanentDeleteError(readError(actionError));
+              notifyError(readError(actionError));
               setPermanentDeleteSubmitting(false);
             }
           }}
@@ -1181,23 +1138,20 @@ function BugDetailPage() {
       {activityDeleteTarget && (
         <BugActivityDeleteDialog
           activity={activityDeleteTarget}
-          error={activityDeleteError}
           submitting={activityDeleteSubmitting}
           onCancel={() => {
             if (!activityDeleteSubmitting) {
               setActivityDeleteTarget(null);
-              setActivityDeleteError('');
             }
           }}
           onConfirm={async () => {
-            setActivityDeleteError('');
             setActivityDeleteSubmitting(true);
             try {
               await api('/bugs/' + bug.id + '/activities/' + activityDeleteTarget.id, { method: 'DELETE' });
               setActivityDeleteTarget(null);
               await load();
             } catch (actionError) {
-              setActivityDeleteError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setActivityDeleteSubmitting(false);
             }
@@ -1212,10 +1166,10 @@ function BugEditPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [loadFailed, setLoadFailed] = useState(false);
   const [bug, setBug] = useState<BugItem | null>(null);
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
   const [draft, setDraft] = useState<BugDraft | null>(null);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -1228,13 +1182,12 @@ function BugEditPage() {
         setDraft(toBugDraft(nextBug));
         setSystems(nextSystems);
       })
-      .catch((error) => setError(readError(error)));
+      .catch((error) => { setLoadFailed(true); notifyError(readError(error)); });
   }, [id]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!id || !draft) return;
-    setError('');
     try {
       await api(`/bugs/${id}`, {
         method: 'PATCH',
@@ -1242,12 +1195,12 @@ function BugEditPage() {
       });
       navigate(`/bugs/${id}`);
     } catch (error) {
-      setError(readError(error));
+      notifyError(readError(error));
     }
   }
 
-  if (error && !draft) {
-    return <div>{error}</div>;
+  if (loadFailed && !draft) {
+    return <div>加载失败</div>;
   }
 
   if (!bug || !draft) {
@@ -1291,7 +1244,6 @@ function BugEditPage() {
             <label>期望结果<textarea value={draft.expected} onChange={(event) => setDraft({ ...draft, expected: event.target.value })} /></label>
             <label>实际结果<textarea value={draft.actual} onChange={(event) => setDraft({ ...draft, actual: event.target.value })} /></label>
           </div>
-          {error && <p className="error">{error}</p>}
           <div className="editor-actions">
             <Link className="ghost" to={`/bugs/${bug.id}`}>取消</Link>
             <button className="primary" type="submit"><Save size={16} />保存 bug</button>
@@ -1311,12 +1263,12 @@ function FeatureDashboard() {
   const [status, setStatus] = useState('');
   const [participantUserId, setParticipantUserId] = useState('');
   const [deleted, setDeleted] = useState<'active' | 'only' | 'all'>('active');
-  const [error, setError] = useState('');
+  const [deleteDialog, setDeleteDialog] = useState<{ feature: FeatureItem; mode: 'soft' | 'permanent' } | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const canCreate = hasPermission(user, 'CREATE_FEATURE');
   const canViewRecycleBin = Boolean(user?.isAdmin);
 
   async function load() {
-    setError('');
     try {
       const params = new URLSearchParams();
       if (systemId) params.set('systemId', systemId);
@@ -1325,7 +1277,7 @@ function FeatureDashboard() {
       if (participantUserId) params.set('participantUserId', participantUserId);
       setFeatures(await api<FeatureItem[]>(`/features?${params.toString()}`));
     } catch (loadError) {
-      setError(readError(loadError));
+      notifyError(readError(loadError));
     }
   }
 
@@ -1337,6 +1289,37 @@ function FeatureDashboard() {
   useEffect(() => {
     void load();
   }, [systemId, status, deleted, participantUserId]);
+
+  function handleFeatureAction(feature: FeatureItem, action: 'delete' | 'permanent-delete') {
+    if (action === 'delete') {
+      setDeleteDialog({ feature, mode: 'soft' });
+      return;
+    }
+    setDeleteDialog({ feature, mode: 'permanent' });
+  }
+
+  async function confirmDeleteDialog(reason: string) {
+    if (!deleteDialog) {
+      return;
+    }
+    setDeleteSubmitting(true);
+    try {
+      if (deleteDialog.mode === 'soft') {
+        await api(`/features/${deleteDialog.feature.id}/delete`, {
+          method: 'POST',
+          body: JSON.stringify({ reason })
+        });
+      } else {
+        await api(`/features/${deleteDialog.feature.id}/permanent`, { method: 'DELETE' });
+      }
+      setDeleteDialog(null);
+      await load();
+    } catch (error) {
+      notifyError(readError(error));
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  }
 
   return (
     <>
@@ -1369,7 +1352,6 @@ function FeatureDashboard() {
           </select>
         )}
       </div>
-      {error && <p className="error">{error}</p>}
       <div className="table-wrap">
         <table>
           <thead>
@@ -1380,12 +1362,19 @@ function FeatureDashboard() {
               <th>优先级</th>
               <th>创建人</th>
               <th>负责人</th>
+              {deleted !== 'active' && <th>删除信息</th>}
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             {features.map((feature) => {
               const canEdit = Boolean(!feature.deletedAt && (user?.isAdmin || feature.creator.id === user?.id));
+              const canSoftDelete = Boolean(
+                !feature.deletedAt &&
+                hasPermission(user, 'DELETE_FEATURE') &&
+                (user?.isAdmin || feature.creator.id === user?.id)
+              );
+              const canPermanentDelete = Boolean(feature.deletedAt && user?.isAdmin);
               return (
                 <tr key={feature.id}>
                   <td data-label="标题"><Link className="row-link" to={`/features/${feature.id}`}>{feature.title}</Link></td>
@@ -1394,10 +1383,42 @@ function FeatureDashboard() {
                   <td data-label="优先级">{severityLabel(feature.priority)}</td>
                   <td data-label="创建人">{feature.creator.displayName}</td>
                   <td data-label="负责人">{feature.owner?.displayName ?? '未指定'}</td>
+                  {deleted !== 'active' && (
+                    <td data-label="删除信息">
+                      {feature.deletedAt ? (
+                        <div className="delete-meta">
+                          <span>{feature.deletedBy?.displayName ?? '未知用户'}</span>
+                          <span>{formatDateTime(feature.deletedAt)}</span>
+                        </div>
+                      ) : (
+                        '未删除'
+                      )}
+                    </td>
+                  )}
                   <td data-label="操作">
                     <div className="actions bug-row-actions">
                       {canEdit && hasPermission(user, 'UPDATE_FEATURE') && (
                         <Link className="ghost compact" to={`/features/${feature.id}/edit`}><Pencil size={16} />编辑</Link>
+                      )}
+                      {canSoftDelete && (
+                        <button
+                          className="ghost compact danger"
+                          type="button"
+                          onClick={() => handleFeatureAction(feature, 'delete')}
+                        >
+                          <Trash2 size={16} />
+                          删除
+                        </button>
+                      )}
+                      {canPermanentDelete && (
+                        <button
+                          className="ghost compact danger"
+                          type="button"
+                          onClick={() => handleFeatureAction(feature, 'permanent-delete')}
+                        >
+                          <Archive size={16} />
+                          彻底删除
+                        </button>
                       )}
                       <Link className="ghost compact" to={`/features/${feature.id}`}><Eye size={16} />详情</Link>
                     </div>
@@ -1406,11 +1427,26 @@ function FeatureDashboard() {
               );
             })}
             {features.length === 0 && (
-              <tr><td colSpan={7} className="empty-cell">{deleted === 'only' ? '回收站中暂无功能。' : '暂无匹配的功能。'}</td></tr>
+              <tr><td colSpan={deleted !== 'active' ? 8 : 7} className="empty-cell">{deleted === 'only' ? '回收站中暂无功能。' : '暂无匹配的功能。'}</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      {deleteDialog && (
+        <BugDeleteDialog
+          mode={deleteDialog.mode}
+          submitting={deleteSubmitting}
+          title={deleteDialog.feature.title}
+          entityName="功能"
+          reasonPlaceholder="例如重复登记、已合并到其他功能或不再需要跟踪"
+          onCancel={() => {
+            if (!deleteSubmitting) {
+              setDeleteDialog(null);
+            }
+          }}
+          onConfirm={(reason) => void confirmDeleteDialog(reason)}
+        />
+      )}
     </>
   );
 }
@@ -1418,7 +1454,6 @@ function FeatureDashboard() {
 function NewFeaturePage() {
   const navigate = useNavigate();
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
-  const [error, setError] = useState('');
   const [form, setForm] = useState({ systemId: '', title: '', description: '', priority: 'MEDIUM' });
 
   useEffect(() => {
@@ -1427,7 +1462,6 @@ function NewFeaturePage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError('');
     try {
       const feature = await api<FeatureItem>('/features', {
         method: 'POST',
@@ -1435,7 +1469,7 @@ function NewFeaturePage() {
       });
       navigate(`/features/${feature.id}`);
     } catch (submitError) {
-      setError(readError(submitError));
+      notifyError(readError(submitError));
     }
   }
 
@@ -1457,7 +1491,6 @@ function NewFeaturePage() {
         </div>
         <label>标题<input required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
         <label>描述<textarea required value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-        {error && <p className="error">{error}</p>}
         <button className="primary" type="submit"><Save size={16} />保存</button>
       </form>
     </>
@@ -1467,15 +1500,19 @@ function NewFeaturePage() {
 function FeatureDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [loadFailed, setLoadFailed] = useState(false);
   const [feature, setFeature] = useState<FeatureDetail | null>(null);
-  const [error, setError] = useState('');
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [statusDialogSubmitting, setStatusDialogSubmitting] = useState(false);
-  const [statusDialogError, setStatusDialogError] = useState('');
+  const [softDeleteOpen, setSoftDeleteOpen] = useState(false);
+  const [softDeleteSubmitting, setSoftDeleteSubmitting] = useState(false);
+  const [permanentDeleteOpen, setPermanentDeleteOpen] = useState(false);
+  const [permanentDeleteSubmitting, setPermanentDeleteSubmitting] = useState(false);
   const [activityListOpen, setActivityListOpen] = useState(false);
+  const [activityDetailTarget, setActivityDetailTarget] = useState<ItemActivity | null>(null);
   const [activityDeleteTarget, setActivityDeleteTarget] = useState<FeatureActivity | null>(null);
   const [activityDeleteSubmitting, setActivityDeleteSubmitting] = useState(false);
-  const [activityDeleteError, setActivityDeleteError] = useState('');
 
   async function load() {
     if (!id) return;
@@ -1483,15 +1520,21 @@ function FeatureDetailPage() {
   }
 
   useEffect(() => {
-    void load().catch((loadError) => setError(readError(loadError)));
+    void load().catch((loadError) => { setLoadFailed(true); notifyError(readError(loadError)); });
   }, [id]);
 
   if (!feature) {
-    return <div>{error || '加载中...'}</div>;
+    return <div>{loadFailed ? '加载失败' : '加载中...'}</div>;
   }
 
   const canEdit = Boolean(!feature.deletedAt && (user?.isAdmin || feature.creator.id === user?.id));
   const canUpdate = hasPermission(user, 'UPDATE_FEATURE');
+  const canSoftDelete = Boolean(
+    !feature.deletedAt &&
+    hasPermission(user, 'DELETE_FEATURE') &&
+    (user?.isAdmin || feature.creator.id === user?.id)
+  );
+  const canPermanentDelete = Boolean(feature.deletedAt && user?.isAdmin);
   const canDeleteActivity = hasPermission(user, 'DELETE_FEATURE_ACTIVITY');
 
   return (
@@ -1510,16 +1553,49 @@ function FeatureDetailPage() {
                 type="button"
                 onClick={() => {
                   setStatusDialogOpen(true);
-                  setStatusDialogError('');
                 }}
               >
                 变更状态
               </button>
             )}
+            {canSoftDelete && (
+              <button
+                className="ghost compact danger"
+                type="button"
+                onClick={() => {
+                  setSoftDeleteOpen(true);
+                }}
+              >
+                <Trash2 size={16} />
+                移入回收站
+              </button>
+            )}
           </div>
         )}
       />
-      {error && <p className="error">{error}</p>}
+      {feature.deletedAt && (
+        <section className="panel deleted-banner">
+          <div>
+            <strong>该功能已进入回收站</strong>
+            <p>
+              删除人：{feature.deletedBy?.displayName ?? '未知用户'} · 删除时间：{formatDateTime(feature.deletedAt)}
+            </p>
+            {feature.deleteReason && <p>删除原因：{feature.deleteReason}</p>}
+          </div>
+          {canPermanentDelete && (
+            <button
+              className="ghost compact danger"
+              type="button"
+              onClick={() => {
+                setPermanentDeleteOpen(true);
+              }}
+            >
+              <Archive size={16} />
+              彻底删除
+            </button>
+          )}
+        </section>
+      )}
       <section className="bug-detail-layout">
         <div className="bug-detail-main">
           <section className="detail-grid bug-detail-top">
@@ -1557,32 +1633,12 @@ function FeatureDetailPage() {
             </div>
           </section>
         </div>
-        <section className="panel bug-activity-panel">
-          <h2>活动记录</h2>
-          <div className="activity-list activity-list-summary">
-            {feature.activities.slice(0, 5).map((activity) => (
-              <article key={activity.id} className="activity-item">
-                <header>
-                  <div>
-                    <strong>{activityTitle(activity, 'feature')}</strong>
-                    <span>
-                      {activity.actor.displayName}
-                      {' · '}
-                      {formatDateTime(activity.createdAt)}
-                    </span>
-                  </div>
-                </header>
-                {activity.note && <p>{activity.note}</p>}
-              </article>
-            ))}
-            {feature.activities.length === 0 && <p className="muted">暂无活动记录</p>}
-          </div>
-          {feature.activities.length > 0 && (
-            <button className="ghost compact activity-view-all" type="button" onClick={() => setActivityListOpen(true)}>
-              查看全部活动 ({feature.activities.length})
-            </button>
-          )}
-        </section>
+        <ActivityPanel
+          activities={feature.activities}
+          kind="feature"
+          onOpenDetail={setActivityDetailTarget}
+          onViewAll={() => setActivityListOpen(true)}
+        />
       </section>
       {activityListOpen && (
         <ActivityListDialog
@@ -1590,33 +1646,46 @@ function FeatureDetailPage() {
           kind="feature"
           canDeleteActivity={canDeleteActivity}
           onClose={() => setActivityListOpen(false)}
+          onOpenDetail={setActivityDetailTarget}
           onDeleteActivity={(activity) => {
             setActivityListOpen(false);
             setActivityDeleteTarget(activity as FeatureActivity);
-            setActivityDeleteError('');
           }}
+        />
+      )}
+      {activityDetailTarget && (
+        <ActivityDetailDialog
+          activity={activityDetailTarget}
+          kind="feature"
+          canDeleteActivity={canDeleteActivity}
+          onClose={() => setActivityDetailTarget(null)}
+          onDelete={
+            canDeleteActivity
+              ? () => {
+                  setActivityDeleteTarget(activityDetailTarget as FeatureActivity);
+                  setActivityDetailTarget(null);
+                }
+              : undefined
+          }
         />
       )}
       {activityDeleteTarget && (
         <FeatureActivityDeleteDialog
           activity={activityDeleteTarget}
-          error={activityDeleteError}
           submitting={activityDeleteSubmitting}
           onCancel={() => {
             if (!activityDeleteSubmitting) {
               setActivityDeleteTarget(null);
-              setActivityDeleteError('');
             }
           }}
           onConfirm={async () => {
-            setActivityDeleteError('');
             setActivityDeleteSubmitting(true);
             try {
               await api('/features/' + feature.id + '/activities/' + activityDeleteTarget.id, { method: 'DELETE' });
               setActivityDeleteTarget(null);
               await load();
             } catch (actionError) {
-              setActivityDeleteError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setActivityDeleteSubmitting(false);
             }
@@ -1626,28 +1695,78 @@ function FeatureDetailPage() {
       {statusDialogOpen && (
         <FeatureStatusDialog
           currentStatus={feature.status}
-          error={statusDialogError}
           submitting={statusDialogSubmitting}
           onClose={() => {
             if (!statusDialogSubmitting) {
               setStatusDialogOpen(false);
-              setStatusDialogError('');
             }
           }}
-          onConfirm={async (status) => {
-            setStatusDialogError('');
+          onConfirm={async (status, note) => {
             setStatusDialogSubmitting(true);
             try {
               await api(`/features/${feature.id}/status`, {
                 method: 'PATCH',
-                body: JSON.stringify({ status })
+                body: JSON.stringify({ status, note })
               });
               setStatusDialogOpen(false);
               await load();
             } catch (actionError) {
-              setStatusDialogError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setStatusDialogSubmitting(false);
+            }
+          }}
+        />
+      )}
+      {softDeleteOpen && (
+        <BugDeleteDialog
+          mode="soft"
+          submitting={softDeleteSubmitting}
+          title={feature.title}
+          entityName="功能"
+          reasonPlaceholder="例如重复登记、已合并到其他功能或不再需要跟踪"
+          onCancel={() => {
+            if (!softDeleteSubmitting) {
+              setSoftDeleteOpen(false);
+            }
+          }}
+          onConfirm={async (reason) => {
+            setSoftDeleteSubmitting(true);
+            try {
+              await api(`/features/${feature.id}/delete`, {
+                method: 'POST',
+                body: JSON.stringify({ reason })
+              });
+              setSoftDeleteOpen(false);
+              await load();
+            } catch (actionError) {
+              notifyError(readError(actionError));
+            } finally {
+              setSoftDeleteSubmitting(false);
+            }
+          }}
+        />
+      )}
+      {permanentDeleteOpen && (
+        <BugDeleteDialog
+          mode="permanent"
+          submitting={permanentDeleteSubmitting}
+          title={feature.title}
+          entityName="功能"
+          onCancel={() => {
+            if (!permanentDeleteSubmitting) {
+              setPermanentDeleteOpen(false);
+            }
+          }}
+          onConfirm={async () => {
+            setPermanentDeleteSubmitting(true);
+            try {
+              await api(`/features/${feature.id}/permanent`, { method: 'DELETE' });
+              navigate('/features');
+            } catch (actionError) {
+              notifyError(readError(actionError));
+            } finally {
+              setPermanentDeleteSubmitting(false);
             }
           }}
         />
@@ -1660,10 +1779,10 @@ function FeatureEditPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [loadFailed, setLoadFailed] = useState(false);
   const [feature, setFeature] = useState<FeatureItem | null>(null);
   const [systems, setSystems] = useState<TrackedSystem[]>([]);
   const [form, setForm] = useState({ systemId: '', title: '', description: '', priority: 'MEDIUM' });
-  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -1678,13 +1797,12 @@ function FeatureEditPage() {
         });
         setSystems(nextSystems);
       })
-      .catch((loadError) => setError(readError(loadError)));
+      .catch((loadError) => { setLoadFailed(true); notifyError(readError(loadError)); });
   }, [id]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!id) return;
-    setError('');
     try {
       await api(`/features/${id}`, {
         method: 'PATCH',
@@ -1692,12 +1810,12 @@ function FeatureEditPage() {
       });
       navigate(`/features/${id}`);
     } catch (submitError) {
-      setError(readError(submitError));
+      notifyError(readError(submitError));
     }
   }
 
   if (!feature) {
-    return <div>{error || '加载中'}</div>;
+    return <div>{loadFailed ? '加载失败' : '加载中'}</div>;
   }
 
   const canEdit = Boolean(user?.isAdmin || feature.creator.id === user?.id);
@@ -1722,7 +1840,6 @@ function FeatureEditPage() {
         </div>
         <label>标题<input required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
         <label>描述<textarea required value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-        {error && <p className="error">{error}</p>}
         <button className="primary" type="submit"><Save size={16} />保存修改</button>
       </form>
     </>
@@ -1731,8 +1848,8 @@ function FeatureEditPage() {
 
 function StatsPage() {
   const { user } = useAuth();
+  const [loadFailed, setLoadFailed] = useState(false);
   const [stats, setStats] = useState<KpiOverview | null>(null);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!hasPermission(user, 'VIEW_STATS')) {
@@ -1740,7 +1857,7 @@ function StatsPage() {
     }
     void api<KpiOverview>('/stats/kpi')
       .then(setStats)
-      .catch((loadError) => setError(readError(loadError)));
+      .catch((loadError) => { setLoadFailed(true); notifyError(readError(loadError)); });
   }, [user]);
 
   if (!hasPermission(user, 'VIEW_STATS')) {
@@ -1748,13 +1865,12 @@ function StatsPage() {
   }
 
   if (!stats) {
-    return <div>{error || '加载 KPI 数据...'}</div>;
+    return <div>{loadFailed ? '加载失败' : '加载 KPI 数据...'}</div>;
   }
 
   return (
     <>
       <PageHeader title="KPI 统计" />
-      {error && <p className="error">{error}</p>}
       <section className="stats-cards">
         <div className="stat-card"><strong>{stats.totals.openBugs}</strong><span>未修复 Bug</span></div>
         <div className="stat-card"><strong>{stats.totals.fixedBugs}</strong><span>已修复 Bug</span></div>
@@ -1811,11 +1927,9 @@ function AdminPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissionDefinitions, setPermissionDefinitions] = useState<PermissionDefinition[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'systems' | 'roles' | 'users'>('systems');
   const [createSystemOpen, setCreateSystemOpen] = useState(false);
   const [createSystemSubmitting, setCreateSystemSubmitting] = useState(false);
-  const [createSystemError, setCreateSystemError] = useState('');
 
   const canManageSystems = hasPermission(user, 'MANAGE_SYSTEMS');
   const canManageRoles = hasPermission(user, 'MANAGE_ROLES');
@@ -1855,27 +1969,25 @@ function AdminPage() {
 
   useEffect(() => {
     if (adminTabs.length) {
-      void loadAll().catch((error) => setError(readError(error)));
+      void loadAll().catch((error) => notifyError(readError(error)));
     }
   }, [canManageSystems, canManageRoles, canManageUsers]);
 
   async function mutate(action: () => Promise<unknown>) {
-    setError('');
     try {
       await action();
       await loadAll();
     } catch (error) {
-      setError(readError(error));
+      notifyError(readError(error));
     }
   }
 
   async function mutateOrThrow(action: () => Promise<unknown>) {
-    setError('');
     try {
       await action();
       await loadAll();
     } catch (error) {
-      setError(readError(error));
+      notifyError(readError(error));
       throw error;
     }
   }
@@ -1901,7 +2013,6 @@ function AdminPage() {
           </button>
         ))}
       </div>
-      {error && <p className="error">{error}</p>}
       <section className="admin-tab-panel" role="tabpanel">
         {activeTab === 'systems' && canManageSystems && (
           <div className="panel">
@@ -1912,7 +2023,6 @@ function AdminPage() {
               type="button"
               onClick={() => {
                 setCreateSystemOpen(true);
-                setCreateSystemError('');
               }}
             >
               <Plus size={16} />新建系统
@@ -1965,23 +2075,20 @@ function AdminPage() {
       </section>
       {createSystemOpen && (
         <CreateSystemDialog
-          error={createSystemError}
           submitting={createSystemSubmitting}
           onClose={() => {
             if (!createSystemSubmitting) {
               setCreateSystemOpen(false);
-              setCreateSystemError('');
             }
           }}
           onConfirm={async (payload) => {
-            setCreateSystemError('');
             setCreateSystemSubmitting(true);
             try {
               await api('/systems', { method: 'POST', body: JSON.stringify(payload) });
               setCreateSystemOpen(false);
               await loadAll();
             } catch (actionError) {
-              setCreateSystemError(readError(actionError));
+              notifyError(readError(actionError));
             } finally {
               setCreateSystemSubmitting(false);
             }
@@ -1996,9 +2103,9 @@ function SystemEditPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [loadFailed, setLoadFailed] = useState(false);
   const [system, setSystem] = useState<TrackedSystem | null>(null);
   const [draft, setDraft] = useState<SystemDraft | null>(null);
-  const [error, setError] = useState('');
 
   const canManageSystems = hasPermission(user, 'MANAGE_SYSTEMS');
 
@@ -2009,18 +2116,17 @@ function SystemEditPage() {
         setSystem(nextSystem);
         setDraft(toSystemDraft(nextSystem));
       })
-      .catch((error) => setError(readError(error)));
+      .catch((error) => { setLoadFailed(true); notifyError(readError(error)); });
   }, [id, canManageSystems]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!id || !draft) return;
-    setError('');
     try {
       await api(`/systems/${id}`, { method: 'PATCH', body: JSON.stringify(draft) });
       navigate('/admin');
     } catch (error) {
-      setError(readError(error));
+      notifyError(readError(error));
     }
   }
 
@@ -2028,8 +2134,8 @@ function SystemEditPage() {
     return <Navigate to="/admin" replace />;
   }
 
-  if (error && !draft) {
-    return <div>{error}</div>;
+  if (loadFailed && !draft) {
+    return <div>加载失败</div>;
   }
 
   if (!system || !draft) {
@@ -2055,7 +2161,6 @@ function SystemEditPage() {
             <label>版本信息<input value={draft.versionInfo ?? ''} onChange={(event) => setDraft({ ...draft, versionInfo: event.target.value })} /></label>
           </div>
           <label>说明<textarea value={draft.description ?? ''} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
-          {error && <p className="error">{error}</p>}
           <div className="editor-actions">
             <Link className="ghost" to="/admin">取消</Link>
             <button className="primary" type="submit"><Save size={16} />保存系统</button>
@@ -2075,16 +2180,14 @@ function SystemRow({
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
 
   async function confirmDelete() {
-    setError('');
     setSubmitting(true);
     try {
       await onDelete();
       setDeleteOpen(false);
     } catch (actionError) {
-      setError(readError(actionError));
+      notifyError(readError(actionError));
     } finally {
       setSubmitting(false);
     }
@@ -2103,7 +2206,7 @@ function SystemRow({
         </div>
         <div className="actions">
           <Link className="icon-button" to={`/admin/systems/${system.id}/edit`} title="编辑系统"><Pencil size={16} /></Link>
-          <button className="icon-button" type="button" onClick={() => { setDeleteOpen(true); setError(''); }} title="彻底删除系统">
+          <button className="icon-button" type="button" onClick={() => setDeleteOpen(true)} title="彻底删除系统">
             <Trash2 size={16} />
           </button>
         </div>
@@ -2115,13 +2218,11 @@ function SystemRow({
           targetLabel="目标系统"
           targetName={system.name}
           warning="请确认你要彻底删除这个系统。"
-          error={error}
           submitting={submitting}
           confirmLabel="确认删除系统"
           onClose={() => {
             if (!submitting) {
               setDeleteOpen(false);
-              setError('');
             }
           }}
           onConfirm={() => void confirmDelete()}
@@ -2142,13 +2243,11 @@ function UserRow({
 }) {
   const [manageOpen, setManageOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
 
   const initialsSource = (user.displayName || user.username).replace(/\s+/g, '').replace(/^@/, '');
   const initials = initialsSource.slice(0, 2).toUpperCase() || user.username.slice(0, 2).toUpperCase();
 
   async function run(action: () => Promise<unknown>, closeOnSuccess = false) {
-    setError('');
     setSubmitting(true);
     try {
       await onMutate(action);
@@ -2156,7 +2255,7 @@ function UserRow({
         setManageOpen(false);
       }
     } catch (actionError) {
-      setError(readError(actionError));
+      notifyError(readError(actionError));
     } finally {
       setSubmitting(false);
     }
@@ -2199,7 +2298,7 @@ function UserRow({
           <span>{user.isAdmin ? '是' : '否'}</span>
         </td>
         <td className="user-actions-cell" data-label="操作">
-          <button className="ghost compact" type="button" onClick={() => { setManageOpen(true); setError(''); }}>
+          <button className="ghost compact" type="button" onClick={() => setManageOpen(true)}>
             管理
           </button>
         </td>
@@ -2209,11 +2308,9 @@ function UserRow({
           user={user}
           roles={roles}
           submitting={submitting}
-          error={error}
           onClose={() => {
             if (!submitting) {
               setManageOpen(false);
-              setError('');
             }
           }}
           onSaveDisplayName={(displayName) => void run(() => api(`/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ displayName }) }), true)}
@@ -2246,14 +2343,6 @@ function PageHeader({ title, action }: { title: string; action?: React.ReactNode
   );
 }
 
-function FloatingError({ message }: { message: string }) {
-  if (!message) return null;
-  return (
-    <p className="error floating-error" role="alert">
-      {message}
-    </p>
-  );
-}
 
 function StatusBadge({ status }: { status: BugStatus }) {
   return <span className={`status ${status.toLowerCase()}`}>{status === 'FIXED' ? '已修复' : '未修复'}</span>;
@@ -2293,18 +2382,6 @@ function toSystemDraft(system: TrackedSystem): SystemDraft {
 
 function severityLabel(value: string) {
   return { LOW: '低', MEDIUM: '中', HIGH: '高', CRITICAL: '严重' }[value] ?? value;
-}
-
-function readError(error: unknown) {
-  if (error instanceof Error) {
-    try {
-      const parsed = JSON.parse(error.message) as { message?: string | string[] };
-      return Array.isArray(parsed.message) ? parsed.message.join('；') : parsed.message ?? error.message;
-    } catch {
-      return error.message;
-    }
-  }
-  return '请求失败';
 }
 
 export default App;

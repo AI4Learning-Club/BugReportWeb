@@ -13,21 +13,13 @@ import {
   patchBugPersonnel,
   patchFeaturePersonnel
 } from './api';
+import { readError } from './errorUtils';
 import { ActionModal, FormModal } from './ModalShell';
+import { notifyError } from './ToastProvider';
 
 type PersonnelKind = 'bug' | 'feature';
 
-function readError(error: unknown) {
-  if (error instanceof Error) {
-    try {
-      const parsed = JSON.parse(error.message) as { message?: string | string[] };
-      return Array.isArray(parsed.message) ? parsed.message.join('；') : parsed.message ?? error.message;
-    } catch {
-      return error.message;
-    }
-  }
-  return '请求失败';
-}
+type PersonnelPatchBody = Parameters<typeof patchBugPersonnel>[1];
 
 function usePersonnelPermissions(
   user: User | null,
@@ -62,6 +54,13 @@ function usePersonnelPermissions(
   };
 }
 
+function isEmptyPersonnelPatch(body: PersonnelPatchBody) {
+  const hasOwner = body.ownerId !== undefined;
+  const addRelatedUserIds = body.addRelatedUserIds ?? [];
+  const removeRelatedUserIds = body.removeRelatedUserIds ?? [];
+  return !hasOwner && addRelatedUserIds.length === 0 && removeRelatedUserIds.length === 0;
+}
+
 export function PersonnelPanel({
   kind,
   entityId,
@@ -81,18 +80,16 @@ export function PersonnelPanel({
 }) {
   const [manageOpen, setManageOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
 
   const perms = usePersonnelPermissions(user, kind, owner, relatedUsers, disabled);
 
   async function run(action: () => Promise<unknown>) {
-    setError('');
     setBusy(true);
     try {
       await action();
       await onUpdated();
     } catch (actionError) {
-      setError(readError(actionError));
+      notifyError(readError(actionError));
     } finally {
       setBusy(false);
     }
@@ -156,7 +153,6 @@ export function PersonnelPanel({
             )}
           </div>
         )}
-        {error && <p className="error">{error}</p>}
       </div>
       {manageOpen && (
         <PersonnelManageDialog
@@ -195,7 +191,6 @@ function PersonnelManageDialog({
 }) {
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [delegateOwnerId, setDelegateOwnerId] = useState('');
-  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const perms = usePersonnelPermissions(user, kind, owner, relatedUsers, disabled);
@@ -204,15 +199,22 @@ function PersonnelManageDialog({
     void api<AssignableUser[]>('/auth/assignable-users').then(setAssignableUsers).catch(() => undefined);
   }, []);
 
-  async function run(action: () => Promise<unknown>) {
-    setError('');
+  function patch(body: PersonnelPatchBody) {
+    return kind === 'bug' ? patchBugPersonnel(entityId, body) : patchFeaturePersonnel(entityId, body);
+  }
+
+  async function runPatch(body: PersonnelPatchBody) {
+    if (isEmptyPersonnelPatch(body)) {
+      notifyError('请先选择要变更的人员');
+      return;
+    }
     setBusy(true);
     try {
-      await action();
+      await patch(body);
       await onUpdated();
       setDelegateOwnerId('');
     } catch (actionError) {
-      setError(readError(actionError));
+      notifyError(readError(actionError));
     } finally {
       setBusy(false);
     }
@@ -225,13 +227,7 @@ function PersonnelManageDialog({
 
   function toggleRelatedUser(userId: string) {
     const isRelated = relatedUsers.some((person) => person.id === userId);
-    void run(() =>
-      patch(isRelated ? { removeRelatedUserIds: [userId] } : { addRelatedUserIds: [userId] })
-    );
-  }
-
-  function patch(body: Parameters<typeof patchBugPersonnel>[1]) {
-    return kind === 'bug' ? patchBugPersonnel(entityId, body) : patchFeaturePersonnel(entityId, body);
+    void runPatch(isRelated ? { removeRelatedUserIds: [userId] } : { addRelatedUserIds: [userId] });
   }
 
   return (
@@ -277,7 +273,7 @@ function PersonnelManageDialog({
               className="ghost compact"
               type="button"
               disabled={busy}
-              onClick={() => void run(() => patch({ ownerId: null }))}
+              onClick={() => void runPatch({ ownerId: null })}
             >
               撤销负责人
             </button>
@@ -290,7 +286,7 @@ function PersonnelManageDialog({
               className="ghost compact"
               type="button"
               disabled={busy}
-              onClick={() => void run(() => patch({ removeRelatedUserIds: [user.id] }))}
+              onClick={() => void runPatch({ removeRelatedUserIds: [user.id] })}
             >
               退出相关人
             </button>
@@ -312,7 +308,7 @@ function PersonnelManageDialog({
                   className="primary compact"
                   type="button"
                   disabled={busy || !delegateOwnerId}
-                  onClick={() => void run(() => patch({ ownerId: delegateOwnerId }))}
+                  onClick={() => void runPatch({ ownerId: delegateOwnerId })}
                 >
                   确认委派
                 </button>
@@ -336,8 +332,6 @@ function PersonnelManageDialog({
             </label>
           </div>
         )}
-
-        {error && <p className="error">{error}</p>}
       </div>
     </FormModal>
   );
@@ -345,12 +339,10 @@ function PersonnelManageDialog({
 
 export function BugRetestDialog({
   submitting,
-  error,
   onClose,
   onConfirm
 }: {
   submitting: boolean;
-  error?: string;
   onClose: () => void;
   onConfirm: (payload: { result: string; note: string }) => void;
 }) {
@@ -391,7 +383,6 @@ export function BugRetestDialog({
         备注
         <input placeholder="可选备注" value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
-      {error && <p className="error">{error}</p>}
     </ActionModal>
   );
 }

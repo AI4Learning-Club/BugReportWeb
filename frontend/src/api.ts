@@ -1,3 +1,5 @@
+import { ApiError } from './errorUtils';
+
 function resolveApiBase() {
   if (import.meta.env.VITE_API_BASE) {
     return import.meta.env.VITE_API_BASE;
@@ -324,11 +326,20 @@ export async function api<T>(path: string, options: RequestInit = {}) {
   try {
     response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   } catch {
-    throw new Error(`无法连接后端服务：${API_BASE}`);
+    throw new Error('无法连接后端服务');
   }
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    let message: string | string[] = response.statusText || '请求失败';
+    try {
+      const parsed = JSON.parse(text) as { message?: string | string[] };
+      if (parsed.message) {
+        message = parsed.message;
+      }
+    } catch {
+      if (text) message = text;
+    }
+    throw new ApiError(response.status, message);
   }
   if (response.status === 204) {
     return null as T;

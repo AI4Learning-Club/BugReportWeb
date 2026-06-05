@@ -17,6 +17,11 @@ import { join } from 'path';
 import { AuthUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  buildBugCreatedSnapshot,
+  buildLogTextPreview,
+  enrichActivityChanges
+} from '../activity/activity-format.util';
+import {
   bugPersonnelInclude,
   buildParticipantFilter,
   toPersonnelResponse
@@ -127,6 +132,7 @@ export class BugsService {
         bugId: created.id,
         actorId: user.id,
         type: BugActivityType.CREATED,
+        changes: buildBugCreatedSnapshot(created, system.name),
         createdAt: created.createdAt
       });
 
@@ -158,11 +164,13 @@ export class BugsService {
         data
       });
 
+      const enrichedChanges = await enrichActivityChanges(tx, changes);
+
       await this.createActivity(tx, {
         bugId: bug.id,
         actorId: user.id,
         type: BugActivityType.UPDATED,
-        changes
+        changes: enrichedChanges
       });
 
       const updated = await this.findBugDetail(tx, bug.id);
@@ -371,7 +379,8 @@ export class BugsService {
         context: {
           runtimeInfoId: created.id,
           title: created.title,
-          environment: created.environment
+          environment: created.environment,
+          logTextPreview: buildLogTextPreview(created.logText)
         }
       });
 
@@ -446,7 +455,8 @@ export class BugsService {
         type: BugActivityType.RUNTIME_INFO_REMOVED,
         context: {
           runtimeInfoId: info.id,
-          title: info.title
+          title: info.title,
+          environment: info.environment
         }
       });
     });

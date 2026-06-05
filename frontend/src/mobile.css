@@ -208,6 +208,31 @@
     overflow: visible;
   }
 
+  button.activity-item.activity-item-clickable {
+    min-height: 48px;
+  }
+
+  .activity-detail-dl-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .activity-detail-long-text {
+    max-height: min(200px, 28vh);
+  }
+
+  .permission-modal.dialog-panel-modal.activity-list-modal .permission-modal-scroll {
+    padding: 14px 16px 14px;
+  }
+
+  .permission-modal.dialog-panel-modal.activity-detail-modal .permission-modal-scroll {
+    max-height: min(68vh, 520px);
+  }
+
+  .activity-list-modal-body .activity-item {
+    padding: 14px;
+  }
+
   .panel-heading-row {
     align-items: stretch;
     flex-direction: column;
@@ -1120,5 +1145,11 @@
   .auth-page,
   .center-screen {
     padding: 16px;
+  }
+
+  .toast-stack {
+    top: 16px;
+    right: 16px;
+    width: calc(100vw - 32px);
   }
 }

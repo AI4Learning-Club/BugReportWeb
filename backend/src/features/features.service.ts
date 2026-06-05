@@ -5,6 +5,10 @@ import {
   NotFoundException
 } from '@nestjs/common';
 import { FeatureActivityType, FeatureStatus, Prisma, Severity } from '@prisma/client';
+import {
+  buildFeatureCreatedSnapshot,
+  enrichActivityChanges
+} from '../activity/activity-format.util';
 import { AuthUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -93,6 +97,7 @@ export class FeaturesService {
         featureId: created.id,
         actorId: user.id,
         type: FeatureActivityType.CREATED,
+        changes: buildFeatureCreatedSnapshot(created, system.name),
         createdAt: created.createdAt
       });
 
@@ -142,11 +147,13 @@ export class FeaturesService {
     return this.prisma.$transaction(async (tx) => {
       await tx.feature.update({ where: { id: feature.id }, data });
 
+      const enrichedChanges = await enrichActivityChanges(tx, changes);
+
       await this.createActivity(tx, {
         featureId: feature.id,
         actorId: user.id,
         type: FeatureActivityType.UPDATED,
-        changes
+        changes: enrichedChanges
       });
 
       const updated = await this.findFeatureDetail(tx, feature.id);
@@ -156,7 +163,7 @@ export class FeaturesService {
 
   async updateStatus(
     id: string,
-    body: { status?: FeatureStatus },
+    body: { status?: FeatureStatus; note?: string },
     user: AuthUser
   ) {
     if (!body.status || !Object.values(FeatureStatus).includes(body.status)) {
@@ -164,6 +171,7 @@ export class FeaturesService {
     }
     const feature = await this.ensureFeature(id);
     const nextStatus = body.status!;
+    const note = this.requireNote(body.note);
 
     if (feature.status === nextStatus) {
       throw new BadRequestException('Feature already has this status');
@@ -184,6 +192,7 @@ export class FeaturesService {
         featureId: id,
         actorId: user.id,
         type: FeatureActivityType.STATUS_CHANGED,
+        note,
         fromStatus: feature.status,
         toStatus: nextStatus
       });

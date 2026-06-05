@@ -1,0 +1,2950 @@
+openapi: 3.1.0
+info:
+  title: BugReportWeb API
+  version: "1.0.0"
+  summary: Bug 与功能需求跟踪、人员委派与团队 KPI 的 REST API
+  description: |
+    BugReportWeb 后端 REST API，用于 Bug 登记、复测、功能需求跟踪、人员委派与团队 KPI 统计。
+
+    ## 基址与调用方式
+
+    **请直连后端 origin**（开发默认 `http://localhost:3001`），不要以前端 Vite 开发服务器（如 `:5173`）作为 API 基址。
+    生产环境若前后端同域部署，浏览器仍应使用同一 origin 下的 `/bugs`、`/auth/login` 等路径。
+
+    请求头建议：
+    - `Content-Type: application/json`（JSON 接口）
+    - `Authorization: Bearer <JWT>`（除公开端点外均需要）
+
+    ## 快速开始
+
+    1. `POST /auth/register` 注册账号（状态为 `PENDING`）
+    2. 管理员 `PATCH /users/{id}/approve` 审批并分配角色
+    3. `POST /auth/login` 获取 `accessToken`（有效期 7 天）
+    4. `GET /auth/me` 预检当前用户权限
+    5. 按业务调用 Bug / 功能 / 系统等接口
+
+    ```bash
+    # 登录示例
+    curl -X POST http://localhost:3001/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"username":"demo","password":"secret123"}'
+
+    # 携带 token 创建 Bug
+    curl -X POST http://localhost:3001/bugs \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{"systemId":"...","title":"按钮无响应","description":"点击保存无反应","severity":"HIGH"}'
+    ```
+
+    ## 认证与账号状态
+
+    | 用户状态 | 含义 | 能否登录 |
+    |---------|------|---------|
+    | `PENDING` | 已注册待审批 | 否 |
+    | `ACTIVE` | 正常使用 | 是 |
+    | `DISABLED` | 已禁用 | 否 |
+
+    - JWT payload 含 `sub`（用户 ID）与 `username`
+    - `isAdmin: true` 的用户**绕过所有权限检查**，但仍需有效 JWT
+    - 登录失败统一返回 `401`，消息为 `Invalid credentials` 或 `User is pending approval or disabled`
+
+    ## 权限模型
+
+    - 控制器 `@Permissions(A, B)` 表示 **OR**：拥有 A **或** B 任一权限即可
+    - 各 operation 的 `x-permissions` 列出装饰器要求的权限；`[]` 表示仅需有效 JWT
+    - `x-service-rules` 描述服务层额外规则（创建者限制、admin 专属等）
+    - 人员 PATCH（`/bugs|features/{id}/personnel`）按 body 字段**动态鉴权**，见对应端点说明
+    - 完整权限目录：`GET /roles/permissions`（需 `MANAGE_ROLES` 或 `MANAGE_USERS`）
+
+    ### 权限速查
+
+    | 权限 | 中文名 | 主要 API |
+    |------|--------|---------|
+    | `CREATE_BUG` | 创建 Bug | `POST /bugs` |
+    | `RETEST_BUG` | 复测 Bug | `POST /bugs/{id}/retests` |
+    | `MARK_BUG_FIXED` | 标记修复 | `PATCH /bugs/{id}/status`、`POST .../personnel/join` |
+    | `ADD_BUG_EVIDENCE` | 补充证据 | 截图 / 运行信息相关 |
+    | `DELETE_BUG` | 软删除 Bug | `POST /bugs/{id}/delete` |
+    | `CREATE_FEATURE` | 登记功能 | `POST /features` |
+    | `UPDATE_FEATURE` | 更新功能 | `PATCH /features/{id}`、`/status`、`/personnel/join` |
+    | `BECOME_ITEM_OWNER` | 成为负责人 | `POST .../personnel/claim-owner` |
+    | `DELEGATE_ITEM_OWNER` | 委派负责人 | `PATCH .../personnel`（`ownerId`） |
+    | `DELEGATE_ITEM_RELATED` | 委派相关人 | `PATCH .../personnel`（`add/removeRelatedUserIds`） |
+    | `VIEW_STATS` | 查看 KPI | `GET /stats/kpi` |
+    | `MANAGE_SYSTEMS` | 系统管理 | `/systems` 写操作 |
+    | `MANAGE_ROLES` | 角色管理 | `/roles` 写操作与导入导出 |
+    | `MANAGE_USERS` | 用户管理 | `/users` |
+
+    ## 错误响应
+
+    统一 JSON 格式（NestJS 默认）：
+
+    ```json
+    {
+      "statusCode": 403,
+      "message": "Only admins or creators can edit bugs",
+      "error": "Forbidden"
+    }
+    ```
+
+    | HTTP | 典型场景 |
+    |------|---------|
+    | `400` | 必填字段缺失、枚举无效、业务校验失败 |
+    | `401` | 未携带 token、token 过期、账号未激活 |
+    | `403` | 权限不足、非创建者/非 admin 操作 |
+    | `404` | 资源 ID 不存在 |
+    | `409` | 用户名冲突（注册） |
+
+    `message` 可能为字符串或字符串数组（校验类错误）。
+
+    ## 列表筛选与软删除
+
+    Bug / 功能列表支持查询参数：
+
+    - `systemId`：按被跟踪系统过滤
+    - `status`：按状态过滤（Bug: `OPEN`/`FIXED`；功能: `PLANNED`/`IN_PROGRESS`/`DONE`）
+    - `deleted`：`active`（默认，仅未删除）、`only`（仅回收站）、`all`（全部；非 admin 会被拒绝或过滤）
+    - `participantUserId`：筛选指定用户参与过的记录（创建者、负责人、相关人、修复人等）
+
+    软删除记录设置 `deletedAt`；仅 admin 可查看 `deleted=only` 的详情。永久删除需先软删除。
+
+    ## 状态流转
+
+    **Bug**：`OPEN` ↔ `FIXED`（`PATCH /bugs/{id}/status`，需 `MARK_BUG_FIXED`；变更为 `FIXED` 时 `note` 必填）
+
+    **功能**：`PLANNED` → `IN_PROGRESS` → `DONE`（无强制顺序，但服务层拒绝重复设置相同状态）
+
+    ## 活动记录
+
+    所有写入操作在事务内产生活动记录（`activities` 数组，仅详情接口返回完整列表）。
+    人员类活动 `context` 含 `previousOwnerName`、`newOwnerName`、`userNames` 等展示字段。
+
+    | 类型 | 含义 |
+    |------|------|
+    | `CREATED` / `UPDATED` / `STATUS_CHANGED` / `DELETED` | 基础生命周期 |
+    | `SCREENSHOT_*` / `RUNTIME_INFO_*` | 证据变更 |
+    | `RETEST_RECORDED` | 复测提交 |
+    | `OWNER_CLAIMED` / `OWNER_DELEGATED` / `OWNER_REVOKED` | 负责人 |
+    | `RELATED_JOINED` / `RELATED_ADDED` / `RELATED_REMOVED` | 相关人 |
+
+    业务撤销应使用对称操作（如 `ownerId: null`、自行退出相关人），**不要**用 `DELETE .../activities` 掩盖历史。
+
+    ## 静态资源
+
+    截图等上传文件通过静态目录提供：`GET /uploads/bug-screenshots/{filename}`。
+    响应中 `Screenshot.path` 为相对路径，完整 URL = `{API_BASE}{path}`。
+
+    上传限制：仅 `image/*`，单文件最大 50MB。
+
+servers:
+  - url: http://localhost:3001
+    description: 本地开发（直连后端，默认端口 3001）
+  - url: "{scheme}://{host}"
+    description: 生产 / 自定义部署（前后端同域时与浏览器 origin 一致）
+    variables:
+      scheme:
+        default: https
+        enum: [http, https]
+      host:
+        default: your-api-host.example.com
+
+tags:
+  - name: Auth
+    description: |
+      认证与会话。`register` / `login` 为公开端点；其余需 JWT。
+      新注册用户处于 `PENDING`，须管理员审批后方可登录。
+  - name: Bugs
+    description: |
+      Bug 全生命周期：登记、编辑、状态、证据（截图/运行信息）、复测、人员委派、软删除与活动审计。
+      列表返回摘要计数；详情含完整 `activities`。
+  - name: Features
+    description: |
+      功能需求管理：登记、编辑、状态推进、人员委派、软删除与活动审计。
+      权限与 Bug 类似但使用 `UPDATE_FEATURE` 替代 `MARK_BUG_FIXED`。
+  - name: Personnel
+    description: |
+      人员委派子域：负责人认领/卸任（`claim-owner`、`ownerId: null`）、相关人加入（`join`）、
+      委派添加/移除（`PATCH .../personnel`）。Bug 与 Feature 共用 `PersonnelPatchBody` 与动态鉴权规则。
+  - name: Attachments
+    description: |
+      Bug 证据附件。截图经 multipart 上传至 `uploads/bug-screenshots/`，通过 `GET /uploads/bug-screenshots/{filename}` 静态访问。
+      运行信息为 JSON 文本字段，非文件附件。
+  - name: Systems
+    description: |
+      被跟踪系统（产品/项目）维护。Bug 与功能均须关联有效系统。
+      有关联 Bug 的系统不可删除。
+  - name: Roles
+    description: |
+      角色与权限配置：CRUD、权限目录、JSON 导入导出。
+      角色被用户引用时不可删除。
+  - name: Users
+    description: |
+      用户管理（控制器级要求 `MANAGE_USERS`）。
+      含审批、角色分配、管理员标记、启用/禁用。
+  - name: Stats
+    description: |
+      团队 KPI 统计：成员处理量、负责项、平均修复时长、工作负载评分等。
+      需 `VIEW_STATS` 权限。
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: 注册账号
+      description: |
+        公开端点，无需 JWT。
+
+        - 新用户状态固定为 `PENDING`，`role` 预置为「普通用户」（若存在）
+        - 密码最少 6 位
+        - 用户名唯一；冲突返回 `409`
+        - 注册成功后须等待管理员 `PATCH /users/{id}/approve` 审批
+      security: []
+      x-permissions: []
+      operationId: authRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+            examples:
+              default:
+                summary: 新用户注册
+                value:
+                  username: zhangsan
+                  password: secret123
+                  displayName: 张三
+      responses:
+        "201":
+          description: 注册成功，等待审批
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+              examples:
+                pending:
+                  value:
+                    user:
+                      id: clx1abc000001
+                      username: zhangsan
+                      displayName: 张三
+                      status: PENDING
+                    message: 注册成功，等待管理员审批
+        "400":
+          description: 参数无效（缺字段或密码过短）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missing:
+                  value:
+                    statusCode: 400
+                    message: username, password and displayName are required
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 登录
+      description: |
+        公开端点。校验用户名密码后签发 JWT（7 天有效）。
+
+        失败场景（均 `401`）：
+        - 用户名或密码错误 → `Invalid credentials`
+        - 账号 `PENDING` 或 `DISABLED` → `User is pending approval or disabled`
+      security: []
+      x-permissions: []
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+            examples:
+              default:
+                value:
+                  username: demo
+                  password: secret123
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+              examples:
+                success:
+                  value:
+                    accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    user:
+                      id: clx1abc000002
+                      username: demo
+                      displayName: 演示用户
+                      status: ACTIVE
+                      isAdmin: false
+                      role:
+                        id: role-normal
+                        name: 普通用户
+                        permissions: [CREATE_BUG, RETEST_BUG]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: 当前用户
+      description: |
+        获取当前 JWT 对应用户，含 `role.permissions` 与 `isAdmin`。
+
+        **建议**：自动化客户端在批量写操作前先调用，缓存权限集合以避免无效请求。
+        响应不含密码等敏感字段。
+      x-permissions: []
+      operationId: authMe
+      responses:
+        "200":
+          description: 当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+              examples:
+                activeUser:
+                  value:
+                    id: clx1abc000002
+                    username: demo
+                    displayName: 演示用户
+                    status: ACTIVE
+                    isAdmin: false
+                    role:
+                      id: role-normal
+                      name: 普通用户
+                      permissions: [CREATE_BUG, RETEST_BUG, MARK_BUG_FIXED]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/assignable-users:
+    get:
+      tags: [Auth]
+      summary: 可分配用户列表
+      description: |
+        返回所有 `ACTIVE` 用户（`id`、`username`、`displayName`），用于人员委派下拉与 PATCH body 中的用户 ID。
+
+        不包含 `PENDING` / `DISABLED` 用户；委派时若指定无效用户 ID 将返回 `400`。
+      x-permissions: []
+      operationId: authAssignableUsers
+      responses:
+        "200":
+          description: 可分配用户列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssignableUser"
+              examples:
+                list:
+                  value:
+                    - id: u1
+                      username: alice
+                      displayName: 爱丽丝
+                    - id: u2
+                      username: bob
+                      displayName: 鲍勃
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /bugs:
+    get:
+      tags: [Bugs]
+      summary: Bug 列表
+      description: |
+        返回 Bug 摘要列表（含截图/运行信息/复测计数，不含完整 `activities`）。
+
+        筛选参数可组合使用。`participantUserId` 匹配创建者、负责人、相关人、修复人、
+        删除人、活动参与者、复测人、证据作者等任一关系。
+
+        非 admin 请求 `deleted=only` 返回 `403`；`deleted=all` 时非 admin 仅能看到自己有权访问的已删除项。
+      x-permissions: []
+      x-service-rules:
+        - deleted=only|all 时非 admin 会被拒绝或过滤
+      operationId: bugsList
+      parameters:
+        - $ref: "#/components/parameters/systemId"
+        - $ref: "#/components/parameters/bugStatus"
+        - $ref: "#/components/parameters/deleted"
+        - $ref: "#/components/parameters/participantUserId"
+      responses:
+        "200":
+          description: Bug 列表（按更新时间降序）
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BugItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Bugs]
+      summary: 创建 Bug
+      description: |
+        创建新 Bug 并写入 `CREATED` 活动记录。创建者自动成为 `creator`。
+
+        必填：`systemId`、`title`、`description`。`systemId` 须指向未删除的系统。
+        可选附带 `runtimeInfos` 数组，在创建时一并添加运行信息（各条需 `title` + `logText`）。
+      x-permissions: [CREATE_BUG]
+      operationId: bugsCreate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBugBody"
+            examples:
+              minimal:
+                summary: 最小必填
+                value:
+                  systemId: sys-001
+                  title: 保存按钮无响应
+                  description: 在编辑页点击保存后页面卡住，控制台无报错
+              full:
+                summary: 含复现信息与运行日志
+                value:
+                  systemId: sys-001
+                  title: 导出 Excel 乱码
+                  description: 中文文件名导出后变为问号
+                  severity: MEDIUM
+                  environment: Windows 11 / Chrome 122
+                  steps: "1. 打开列表\n2. 点击导出\n3. 打开下载文件"
+                  expected: 文件名与内容编码正确
+                  actual: 文件名为乱码
+                  runtimeInfos:
+                    - title: 浏览器控制台
+                      environment: Chrome 122
+                      logText: "Uncaught EncodingError: ..."
+      responses:
+        "201":
+          description: 创建的 Bug 详情（含 activities）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BugDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /bugs/{id}:
+    get:
+      tags: [Bugs]
+      summary: Bug 详情
+      description: |
+        返回完整 Bug，含 `activities`（按时间升序）、`screenshots`、`runtimeInfos`、`retests`、人员信息。
+
+        已软删除的 Bug 仅 `isAdmin` 可查看，否则 `404`。
+      x-permissions: []
+      x-service-rules:
+        - 已软删除的 Bug 仅 admin 可查看
+      operationId: bugsDetail
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      responses:
+        "200":
+          description: Bug 详情（含 activities）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BugDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Bugs]
+      summary: 更新 Bug 字段
+      description: |
+        部分更新 Bug 内容字段（不含 `status`，状态请用 `PATCH /bugs/{id}/status`）。
+
+        仅 **admin** 或 **创建者** 可编辑。变更写入 `UPDATED` 活动，`changes` 记录字段 diff。
+        传入空字符串的 `title`/`description`/`systemId` 会被拒绝。
+      x-permissions: []
+      x-service-rules:
+        - 仅 admin 或 Bug 创建者可编辑
+      operationId: bugsUpdate
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBugBody"
+            examples:
+              severity:
+                value:
+                  severity: CRITICAL
+                  environment: 生产环境
+      responses:
+        "200":
+          description: 更新后的 Bug
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BugDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/status:
+    patch:
+      tags: [Bugs]
+      summary: 更新 Bug 状态
+      description: |
+        切换 Bug 状态 `OPEN` ↔ `FIXED`，写入 `STATUS_CHANGED` 活动。
+
+        - 变更为 `FIXED` 时 **`note` 必填**（修复说明）
+        - 设为与当前相同状态 → `400 Bug already has this status`
+        - 标记为 `FIXED` 时记录 `fixedBy` / `fixedAt`
+      x-permissions: [MARK_BUG_FIXED]
+      operationId: bugsUpdateStatus
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBugStatusBody"
+            examples:
+              fixed:
+                summary: 标记已修复
+                value:
+                  status: FIXED
+                  note: 已在 v2.1.0 修复按钮事件绑定问题
+              reopen:
+                summary: 重新打开
+                value:
+                  status: OPEN
+                  note: 回归测试仍复现
+      responses:
+        "200":
+          description: 更新后的 Bug
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BugDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/delete:
+    post:
+      tags: [Bugs]
+      summary: 软删除 Bug
+      description: |
+        软删除：设置 `deletedAt`、`deletedBy`，写入 `DELETED` 活动。记录进入回收站。
+
+        - 非 admin 仅可删除**自己创建**的 Bug
+        - `reason` 可选，存入 `deleteReason`
+      x-permissions: [DELETE_BUG]
+      x-service-rules:
+        - 非 admin 仅可软删除自己创建的 Bug
+      operationId: bugsSoftDelete
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoftDeleteBody"
+            examples:
+              withReason:
+                value:
+                  reason: 重复登记，合并至 #42
+      responses:
+        "200":
+          description: 软删除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/permanent:
+    delete:
+      tags: [Bugs]
+      summary: 永久删除 Bug
+      description: |
+        **仅 `isAdmin`** 可调用。须先软删除（`deletedAt` 非空），否则 `400`。
+
+        物理删除 Bug 及关联截图文件、运行信息、复测、活动记录等。不可恢复。
+      x-permissions: []
+      x-service-rules:
+        - 仅 isAdmin 用户可调用
+      operationId: bugsPermanentDelete
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      responses:
+        "200":
+          description: 永久删除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/activities/{activityId}:
+    delete:
+      tags: [Bugs]
+      summary: 删除活动记录
+      description: |
+        **管理用途**：从详情页移除指定活动行。需 `DELETE_BUG_ACTIVITY`。
+
+        ⚠️ 不可作为业务撤销手段（如撤销负责人应使用 `PATCH .../personnel`）。
+        删除后审计链断裂，默认不分配给普通角色。
+      x-permissions: [DELETE_BUG_ACTIVITY]
+      operationId: bugsDeleteActivity
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+        - $ref: "#/components/parameters/activityId"
+      responses:
+        "200":
+          description: 活动记录已删除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/personnel/join:
+    post:
+      tags: [Bugs, Personnel]
+      summary: 加入 Bug 相关人
+      description: |
+        将**当前用户**加入 `relatedUsers`，写入 `RELATED_JOINED` 活动。
+
+        需 `MARK_BUG_FIXED`（admin 豁免）。已是相关人时幂等返回详情。
+        负责人不能同时出现在相关人列表。
+      x-permissions: [MARK_BUG_FIXED]
+      x-service-rules:
+        - 非 admin 需 MARK_BUG_FIXED 权限
+      operationId: bugsPersonnelJoin
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      responses:
+        "200":
+          description: 更新后的 Bug
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BugDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/personnel/claim-owner:
+    post:
+      tags: [Bugs, Personnel]
+      summary: 认领 Bug 负责人
+      description: |
+        将**当前用户**设为 `owner`。若已有其他负责人，写入 `OWNER_DELEGATED`；否则 `OWNER_CLAIMED`。
+
+        需 `BECOME_ITEM_OWNER`。无负责人时任意有权限者可认领；卸任负责人请用 `PATCH .../personnel` 传 `ownerId: null`。
+      x-permissions: [BECOME_ITEM_OWNER]
+      operationId: bugsPersonnelClaimOwner
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      responses:
+        "200":
+          description: 更新后的 Bug
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BugDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/personnel:
+    patch:
+      tags: [Bugs, Personnel]
+      summary: 委派 Bug 人员
+      description: |
+        无控制器级固定权限；按 body 字段**动态鉴权**（至少提供一个字段）：
+
+        | 字段 | 所需权限 | 说明 |
+        |------|---------|------|
+        | `ownerId`（非 null） | `DELEGATE_ITEM_OWNER` | 委派他人为负责人 |
+        | `ownerId: null` | `BECOME_ITEM_OWNER`（现任负责人自荐卸任）或 `DELEGATE_ITEM_OWNER` | 撤销负责人 |
+        | `addRelatedUserIds` | `DELEGATE_ITEM_RELATED` | 添加相关人（须 ACTIVE 用户） |
+        | `removeRelatedUserIds` | `DELEGATE_ITEM_RELATED` 或自行移除自己 | 退出相关人无需委派权限 |
+
+        约束：`ownerId` 不能与 `addRelatedUserIds` 重叠；用户须为 ACTIVE。
+      x-permissions: []
+      x-service-rules:
+        - 按 PersonnelPatchBody 字段动态校验权限
+      operationId: bugsPersonnelPatch
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonnelPatchBody"
+            examples:
+              delegateOwner:
+                summary: 委派负责人
+                value:
+                  ownerId: u-alice
+              revokeOwner:
+                summary: 撤销负责人
+                value:
+                  ownerId: null
+              addRelated:
+                summary: 添加相关人
+                value:
+                  addRelatedUserIds: [u-bob, u-carol]
+              selfExit:
+                summary: 自行退出相关人
+                value:
+                  removeRelatedUserIds: [当前用户ID]
+      responses:
+        "200":
+          description: 更新后的 Bug
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BugDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/screenshots:
+    post:
+      tags: [Bugs, Attachments]
+      summary: 上传截图
+      description: |
+        `multipart/form-data` 上传。字段 `file`（必填）须为 `image/*`，最大 **50MB**。
+        可选 `caption` 作为图片说明。
+
+        文件存于 `uploads/bug-screenshots/`，访问路径见响应 `path`。
+        写入 `SCREENSHOT_ADDED` 活动。
+      x-permissions: [ADD_BUG_EVIDENCE]
+      operationId: bugsAddScreenshot
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 图片文件（image/*），最大 50MB
+                caption:
+                  type: string
+                  description: 可选截图说明
+      responses:
+        "201":
+          description: 截图记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Screenshot"
+              examples:
+                uploaded:
+                  value:
+                    id: ss-001
+                    path: /uploads/bug-screenshots/a1b2c3.png
+                    originalName: error-dialog.png
+                    caption: 点击保存后的报错弹窗
+                    uploaderId: u-demo
+        "400":
+          description: 缺少文件或 MIME 类型非图片
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/screenshots/{screenshotId}:
+    delete:
+      tags: [Bugs, Attachments]
+      summary: 删除截图
+      description: |
+        删除截图文件及数据库记录，写入 `SCREENSHOT_REMOVED` 活动。
+
+        仅 **admin**、**Bug 创建者**或**上传者**可删除。
+      x-permissions: [ADD_BUG_EVIDENCE]
+      x-service-rules:
+        - admin、Bug 创建者或上传者可删除
+      operationId: bugsRemoveScreenshot
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+        - $ref: "#/components/parameters/screenshotId"
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/runtime-info:
+    post:
+      tags: [Bugs]
+      summary: 添加运行信息
+      description: |
+        添加运行环境 / 日志片段。必填 `title` 与 `logText`。
+        写入 `RUNTIME_INFO_ADDED` 活动；`authorId` 为当前用户。
+      x-permissions: [ADD_BUG_EVIDENCE]
+      operationId: bugsAddRuntimeInfo
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuntimeInfoBody"
+            examples:
+              log:
+                value:
+                  title: 服务端日志
+                  environment: staging
+                  logText: |
+                    [ERROR] 2024-01-15 Connection timeout after 30s
+      responses:
+        "201":
+          description: 运行信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeInfo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/runtime-info/{infoId}:
+    patch:
+      tags: [Bugs]
+      summary: 更新运行信息
+      description: |
+        部分更新运行信息。仅 **admin** 或**作者**可编辑。
+        `title` / `logText` 若传入则不可为空字符串。
+      x-permissions: [ADD_BUG_EVIDENCE]
+      x-service-rules:
+        - admin 或作者可编辑
+      operationId: bugsUpdateRuntimeInfo
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+        - $ref: "#/components/parameters/runtimeInfoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuntimeInfoBody"
+      responses:
+        "200":
+          description: 运行信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeInfo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Bugs]
+      summary: 删除运行信息
+      description: 仅 **admin** 或**作者**可删除。写入 `RUNTIME_INFO_REMOVED` 活动。
+      x-permissions: [ADD_BUG_EVIDENCE]
+      x-service-rules:
+        - admin 或作者可删除
+      operationId: bugsRemoveRuntimeInfo
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+        - $ref: "#/components/parameters/runtimeInfoId"
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bugs/{id}/retests:
+    post:
+      tags: [Bugs]
+      summary: 提交复测结果
+      description: |
+        记录复测结论，写入 `RETEST_RECORDED` 活动。
+
+        - `result` 必填：`APPEARED`（仍复现）或 `NOT_APPEARED`（未复现）
+        - **不能复测自己创建的 Bug**（`403`）
+        - 同一用户可多次复测，列表保留全部记录
+      x-permissions: [RETEST_BUG]
+      x-service-rules:
+        - 不能复测自己创建的 Bug
+      operationId: bugsRetest
+      parameters:
+        - $ref: "#/components/parameters/bugId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetestBody"
+            examples:
+              appeared:
+                value:
+                  result: APPEARED
+                  note: v2.1.0 仍可在步骤 3 复现
+              notAppeared:
+                value:
+                  result: NOT_APPEARED
+                  note: 按修复说明验证通过
+      responses:
+        "200":
+          description: 更新后的 Bug（含新复测记录）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BugDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features:
+    get:
+      tags: [Features]
+      summary: 功能列表
+      description: |
+        返回功能摘要列表。筛选语义与 Bug 列表相同（`systemId`、`status`、`deleted`、`participantUserId`）。
+        详情接口才返回完整 `activities`。
+      x-permissions: []
+      x-service-rules:
+        - deleted=only|all 时非 admin 会被拒绝或过滤
+      operationId: featuresList
+      parameters:
+        - $ref: "#/components/parameters/systemId"
+        - $ref: "#/components/parameters/featureStatus"
+        - $ref: "#/components/parameters/deleted"
+        - $ref: "#/components/parameters/participantUserId"
+      responses:
+        "200":
+          description: 功能列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeatureItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Features]
+      summary: 创建功能
+      description: |
+        登记新功能需求，写入 `CREATED` 活动。初始状态为 `PLANNED`。
+        必填：`systemId`、`title`、`description`。
+      x-permissions: [CREATE_FEATURE]
+      operationId: featuresCreate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFeatureBody"
+            examples:
+              default:
+                value:
+                  systemId: sys-001
+                  title: 导出 PDF 报告
+                  description: 支持按日期范围导出 Bug 统计 PDF
+                  priority: MEDIUM
+      responses:
+        "201":
+          description: 创建的功能详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /features/{id}:
+    get:
+      tags: [Features]
+      summary: 功能详情
+      description: 返回完整功能含 `activities`。已软删除的仅 admin 可查看。
+      x-permissions: []
+      x-service-rules:
+        - 已软删除的功能仅 admin 可查看
+      operationId: featuresDetail
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      responses:
+        "200":
+          description: 功能详情（含 activities）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Features]
+      summary: 更新功能
+      description: |
+        部分更新功能字段（不含 `status`）。需 `UPDATE_FEATURE`。
+        非 admin 仅可编辑**自己创建**的功能。
+      x-permissions: [UPDATE_FEATURE]
+      x-service-rules:
+        - 非 admin 仅可编辑自己创建的功能
+      operationId: featuresUpdate
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFeatureBody"
+      responses:
+        "200":
+          description: 更新后的功能
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/status:
+    patch:
+      tags: [Features]
+      summary: 更新功能状态
+      description: |
+        切换 `PLANNED` / `IN_PROGRESS` / `DONE`，写入 `STATUS_CHANGED` 活动。
+        设为 `DONE` 时记录 `completedBy` / `completedAt`。重复状态 → `400`。
+      x-permissions: [UPDATE_FEATURE]
+      operationId: featuresUpdateStatus
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFeatureStatusBody"
+            examples:
+              inProgress:
+                value:
+                  status: IN_PROGRESS
+                  note: 已分配开发，预计本周完成
+              done:
+                value:
+                  status: DONE
+                  note: 已在 v3.0 发布
+      responses:
+        "200":
+          description: 更新后的功能
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/delete:
+    post:
+      tags: [Features]
+      summary: 软删除功能
+      description: |
+        软删除功能，语义同 Bug 软删除。非 admin 仅可删除自己创建的功能。
+      x-permissions: [DELETE_FEATURE]
+      x-service-rules:
+        - 非 admin 仅可软删除自己创建的功能
+      operationId: featuresSoftDelete
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoftDeleteBody"
+      responses:
+        "200":
+          description: 软删除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/permanent:
+    delete:
+      tags: [Features]
+      summary: 永久删除功能
+      description: |
+        仅 admin；须先软删除（否则 `400 Feature must be soft-deleted first`）。不可恢复。
+      x-permissions: []
+      x-service-rules:
+        - 仅 isAdmin 用户可调用
+      operationId: featuresPermanentDelete
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      responses:
+        "200":
+          description: 永久删除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/activities/{activityId}:
+    delete:
+      tags: [Features]
+      summary: 删除功能活动记录
+      description: 管理用途，需 `DELETE_FEATURE_ACTIVITY`。不可作为业务撤销手段。
+      x-permissions: [DELETE_FEATURE_ACTIVITY]
+      operationId: featuresDeleteActivity
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+        - $ref: "#/components/parameters/activityId"
+      responses:
+        "200":
+          description: 活动记录已删除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/personnel/join:
+    post:
+      tags: [Features, Personnel]
+      summary: 加入功能相关人
+      description: |
+        将当前用户加入相关人，需 `UPDATE_FEATURE`（admin 豁免）。写入 `RELATED_JOINED` 活动。
+      x-permissions: [UPDATE_FEATURE]
+      operationId: featuresPersonnelJoin
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      responses:
+        "200":
+          description: 更新后的功能
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/personnel/claim-owner:
+    post:
+      tags: [Features, Personnel]
+      summary: 认领功能负责人
+      description: 将当前用户设为 owner，需 `BECOME_ITEM_OWNER`。
+      x-permissions: [BECOME_ITEM_OWNER]
+      operationId: featuresPersonnelClaimOwner
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      responses:
+        "200":
+          description: 更新后的功能
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /features/{id}/personnel:
+    patch:
+      tags: [Features, Personnel]
+      summary: 委派功能人员
+      description: 动态鉴权规则与 `PATCH /bugs/{id}/personnel` 完全相同，参见该端点说明表格。
+      x-permissions: []
+      x-service-rules:
+        - 按 PersonnelPatchBody 字段动态校验权限
+      operationId: featuresPersonnelPatch
+      parameters:
+        - $ref: "#/components/parameters/featureId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonnelPatchBody"
+      responses:
+        "200":
+          description: 更新后的功能
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /systems:
+    get:
+      tags: [Systems]
+      summary: 系统列表
+      description: |
+        返回被跟踪系统列表。默认不含已软删除项；`includeDeleted=true` 时包含。
+        创建 Bug/功能时须选择未删除的系统。
+      x-permissions: []
+      operationId: systemsList
+      parameters:
+        - $ref: "#/components/parameters/includeDeleted"
+      responses:
+        "200":
+          description: 系统列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrackedSystem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Systems]
+      summary: 创建系统
+      description: |
+        创建被跟踪系统。`name` 必填且全局唯一（冲突 `400 系统名称已存在`）。
+      x-permissions: [MANAGE_SYSTEMS]
+      operationId: systemsCreate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemBody"
+            examples:
+              default:
+                value:
+                  name: 订单中心
+                  description: 电商订单与支付子系统
+                  owner: 张三
+                  versionInfo: v2.4.1
+      responses:
+        "201":
+          description: 创建的系统
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackedSystem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /systems/{id}:
+    get:
+      tags: [Systems]
+      summary: 系统详情
+      description: 按 ID 获取单个被跟踪系统。
+      x-permissions: []
+      operationId: systemsDetail
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: 系统详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackedSystem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Systems]
+      summary: 更新系统
+      description: |
+        部分更新系统字段。`name` 若修改须保持唯一。
+        传 `null` 可清空 `description` / `owner` / `versionInfo`。
+      x-permissions: [MANAGE_SYSTEMS]
+      operationId: systemsUpdate
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemUpdateBody"
+      responses:
+        "200":
+          description: 更新后的系统
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackedSystem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Systems]
+      summary: 删除系统
+      description: |
+        软删除系统（设置 `deletedAt`）。若仍有关联 Bug → `400 Cannot delete a system that already has bugs`。
+      x-permissions: [MANAGE_SYSTEMS]
+      x-service-rules:
+        - 有关联 Bug 时拒绝删除
+      operationId: systemsDelete
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /roles:
+    get:
+      tags: [Roles]
+      summary: 角色列表
+      description: |
+        返回所有角色及 `permissions`、`userCount`。需 `MANAGE_ROLES` **或** `MANAGE_USERS`。
+        用户管理页审批时需读取角色列表。
+      x-permissions: [MANAGE_ROLES, MANAGE_USERS]
+      operationId: rolesList
+      responses:
+        "200":
+          description: 角色列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Roles]
+      summary: 创建角色
+      description: |
+        创建新角色。`name` 必填；`permissions` 须为有效枚举值，否则 `400`。
+      x-permissions: [MANAGE_ROLES]
+      operationId: rolesCreate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleBody"
+            examples:
+              tester:
+                value:
+                  name: 测试工程师
+                  permissions: [CREATE_BUG, RETEST_BUG, MARK_BUG_FIXED]
+      responses:
+        "201":
+          description: 创建的角色
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /roles/permissions:
+    get:
+      tags: [Roles]
+      summary: 权限目录
+      description: |
+        返回所有 `Permission` 的完整元数据：`zhName`、`summary`、`description`、`surfaces`、`apis`。
+        与角色管理 UI 展示一致，供管理员理解各权限含义。
+      x-permissions: [MANAGE_ROLES, MANAGE_USERS]
+      operationId: rolesPermissions
+      responses:
+        "200":
+          description: 权限目录
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PermissionDefinition"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /roles/export:
+    get:
+      tags: [Roles]
+      summary: 导出角色配置
+      description: |
+        导出当前所有角色的 `name` + `permissions` 为 JSON 文档（`version: 1`），用于备份或跨环境同步。
+      x-permissions: [MANAGE_ROLES]
+      operationId: rolesExport
+      responses:
+        "200":
+          description: 角色配置 JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleConfigDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /roles/import:
+    post:
+      tags: [Roles]
+      summary: 导入角色配置
+      description: |
+        **全量替换**角色权限配置（按角色名匹配更新 permissions，可创建新角色）。
+        - `version` 须为 `1`
+        - `roles` 非空数组，角色名不可重复
+        - 无效权限枚举 → `400`
+      x-permissions: [MANAGE_ROLES]
+      operationId: rolesImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleConfigDocument"
+            examples:
+              backup:
+                value:
+                  version: 1
+                  exportedAt: "2024-06-01T00:00:00.000Z"
+                  roles:
+                    - name: 普通用户
+                      permissions: [CREATE_BUG, RETEST_BUG]
+                    - name: 开发
+                      permissions: [MARK_BUG_FIXED, BECOME_ITEM_OWNER]
+      responses:
+        "200":
+          description: 导入后的配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleConfigDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /roles/{id}:
+    patch:
+      tags: [Roles]
+      summary: 更新角色
+      description: 更新角色名称或权限列表。`name` 不可为空。
+      x-permissions: [MANAGE_ROLES]
+      operationId: rolesUpdate
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleBody"
+      responses:
+        "200":
+          description: 更新后的角色
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Roles]
+      summary: 删除角色
+      description: |
+        删除角色。仍有用户引用时 → `400 Cannot delete a role assigned to users`。
+      x-permissions: [MANAGE_ROLES]
+      operationId: rolesDelete
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users:
+    get:
+      tags: [Users]
+      summary: 用户列表
+      description: |
+        返回全部用户（含 `PENDING` / `DISABLED`），含 `role` 与 `isAdmin`。
+        整个 `/users` 控制器要求 `MANAGE_USERS`（admin 豁免权限检查但仍需 JWT）。
+      x-permissions: [MANAGE_USERS]
+      operationId: usersList
+      responses:
+        "200":
+          description: 用户列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+              examples:
+                mixed:
+                  value:
+                    - id: u-pending
+                      username: newcomer
+                      displayName: 新同事
+                      status: PENDING
+                      isAdmin: false
+                      role:
+                        id: role-normal
+                        name: 普通用户
+                        permissions: [CREATE_BUG]
+                    - id: u-active
+                      username: alice
+                      displayName: 爱丽丝
+                      status: ACTIVE
+                      isAdmin: true
+                      role: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /users/{id}:
+    patch:
+      tags: [Users]
+      summary: 更新用户显示名
+      description: 修改用户 `displayName`，`displayName` 必填且不可为空。
+      x-permissions: [MANAGE_USERS]
+      operationId: usersUpdate
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserDisplayNameBody"
+      responses:
+        "200":
+          description: 更新后的用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users/{id}/approve:
+    patch:
+      tags: [Users]
+      summary: 审批用户
+      description: |
+        将 `PENDING` 用户设为 `ACTIVE` 并分配 `roleId`。
+        若 `roleId` 无效 → `404 Role not found`。
+      x-permissions: [MANAGE_USERS]
+      operationId: usersApprove
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserApproveBody"
+            examples:
+              approve:
+                value:
+                  roleId: role-normal
+      responses:
+        "200":
+          description: 审批后的用户（status=ACTIVE）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: 用户非 PENDING 状态等业务校验失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users/{id}/role:
+    patch:
+      tags: [Users]
+      summary: 分配角色
+      description: |
+        为 ACTIVE 用户分配角色。`roleId: null` 可移除角色（保留账号）。
+      x-permissions: [MANAGE_USERS]
+      operationId: usersUpdateRole
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserRoleBody"
+      responses:
+        "200":
+          description: 更新后的用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users/{id}/admin:
+    patch:
+      tags: [Users]
+      summary: 切换管理员标记
+      description: |
+        设置 `isAdmin`。管理员**不能取消自己的** admin 标记（`400`）。
+        `isAdmin` 用户绕过所有 Permission 检查。
+      x-permissions: [MANAGE_USERS]
+      x-service-rules:
+        - 不能取消自己的 admin 标记
+      operationId: usersUpdateAdmin
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserAdminBody"
+      responses:
+        "200":
+          description: 更新后的用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users/{id}/status:
+    patch:
+      tags: [Users]
+      summary: 更新用户状态
+      description: |
+        切换 `ACTIVE` / `DISABLED` 等。`status` 必填。
+        用户**不能禁用自己**（`400`）。禁用后该用户无法登录。
+      x-permissions: [MANAGE_USERS]
+      x-service-rules:
+        - 不能禁用自己
+      operationId: usersUpdateStatus
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserStatusBody"
+            examples:
+              disable:
+                value:
+                  status: DISABLED
+      responses:
+        "200":
+          description: 更新后的用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /uploads/bug-screenshots/{filename}:
+    get:
+      tags: [Attachments]
+      summary: 获取 Bug 截图文件
+      description: |
+        Express 静态资源端点，映射后端 `uploads/bug-screenshots/` 目录。**无需 JWT**。
+
+        `filename` 为上传时服务端生成的 UUID 文件名（含扩展名），可从 `Screenshot.path` 提取末段。
+        示例：`<img src="http://localhost:3001/uploads/bug-screenshots/a1b2c3.png" alt="截图" />`
+
+        文件不存在时由 Express 返回 `404`（非 JSON 错误体）。
+      security: []
+      x-permissions: []
+      operationId: attachmentsGetScreenshot
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          description: 服务端生成的文件名（UUID + 扩展名）
+          schema:
+            type: string
+            example: a1b2c3d4-e5f6-7890-abcd-ef1234567890.png
+      responses:
+        "200":
+          description: 图片二进制内容（Content-Type 由文件扩展名决定）
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: 文件不存在
+
+  /stats/kpi:
+    get:
+      tags: [Stats]
+      summary: KPI 概览
+      description: |
+        聚合团队效率指标，含全局 `totals` 与按人 `people` 数组。
+
+        `workloadScore` 综合负责中的 Bug/功能数量与未完成项加权计算，用于负载对比。
+        `avgFixHours` 为已修复 Bug 的平均修复耗时（小时），无数据时为 `null`。
+      x-permissions: [VIEW_STATS]
+      operationId: statsKpi
+      responses:
+        "200":
+          description: KPI 数据
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KpiOverview"
+              examples:
+                overview:
+                  value:
+                    generatedAt: "2024-06-01T08:00:00.000Z"
+                    totals:
+                      activeUsers: 12
+                      openBugs: 34
+                      fixedBugs: 128
+                      activeFeatures: 8
+                      doneFeatures: 45
+                    people:
+                      - user:
+                          id: u1
+                          username: alice
+                          displayName: 爱丽丝
+                        bugsCreated: 15
+                        bugsFixed: 22
+                        avgFixHours: 18.5
+                        featuresCreated: 3
+                        featuresCompleted: 5
+                        retestsSubmitted: 40
+                        retestsAppeared: 8
+                        bugsOwned: 4
+                        featuresOwned: 2
+                        openBugsOwned: 2
+                        openFeaturesOwned: 1
+                        workloadScore: 12.5
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 登录后获得的 accessToken，有效期 7 天。
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      description: 资源 UUID（通用路径参数）
+      schema:
+        type: string
+        example: clx1abc000001
+    bugId:
+      name: id
+      in: path
+      required: true
+      description: Bug ID（cuid）
+      schema:
+        type: string
+        example: clxbug000001
+    featureId:
+      name: id
+      in: path
+      required: true
+      description: 功能 ID（cuid）
+      schema:
+        type: string
+        example: clxfeat000001
+    activityId:
+      name: activityId
+      in: path
+      required: true
+      description: 活动记录 ID
+      schema:
+        type: string
+    screenshotId:
+      name: screenshotId
+      in: path
+      required: true
+      description: 截图 ID
+      schema:
+        type: string
+    runtimeInfoId:
+      name: infoId
+      in: path
+      required: true
+      description: 运行信息 ID
+      schema:
+        type: string
+    systemId:
+      name: systemId
+      in: query
+      description: 按被跟踪系统 ID 过滤列表
+      schema:
+        type: string
+    bugStatus:
+      name: status
+      in: query
+      description: 按 Bug 状态过滤
+      schema:
+        $ref: "#/components/schemas/BugStatus"
+    featureStatus:
+      name: status
+      in: query
+      description: 按功能状态过滤
+      schema:
+        $ref: "#/components/schemas/FeatureStatus"
+    deleted:
+      name: deleted
+      in: query
+      description: |
+        软删除过滤：`active`（默认）、`only`（回收站，非 admin 403）、`all`（全部）
+      schema:
+        type: string
+        enum: [active, only, all]
+        default: active
+    participantUserId:
+      name: participantUserId
+      in: query
+      description: 筛选指定用户参与过的 Bug/功能（创建者、负责人、相关人等）
+      schema:
+        type: string
+    includeDeleted:
+      name: includeDeleted
+      in: query
+      description: 系统列表是否包含已软删除系统
+      schema:
+        type: boolean
+        default: false
+
+  responses:
+    BadRequest:
+      description: 请求参数无效或业务校验失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            validation:
+              value:
+                statusCode: 400
+                message: systemId, title and description are required
+                error: Bad Request
+    Unauthorized:
+      description: 未认证、token 无效、或账号未激活
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalidToken:
+              value:
+                statusCode: 401
+                message: Unauthorized
+    Forbidden:
+      description: 权限不足或违反服务层访问规则
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            noPermission:
+              value:
+                statusCode: 403
+                message: You do not have permission to delegate the owner
+                error: Forbidden
+    NotFound:
+      description: 资源不存在或当前用户无权查看（如已软删除）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            missing:
+              value:
+                statusCode: 404
+                message: Bug not found
+                error: Not Found
+    Conflict:
+      description: 资源冲突（如用户名已存在）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            duplicateUser:
+              value:
+                statusCode: 409
+                message: Username already exists
+                error: Conflict
+
+  schemas:
+    ErrorResponse:
+      type: object
+      description: NestJS 标准错误响应
+      properties:
+        statusCode:
+          type: integer
+          description: HTTP 状态码
+        message:
+          description: 错误说明，校验失败时可能为字符串数组
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        error:
+          type: string
+          description: HTTP 状态短语（如 Bad Request、Forbidden）
+
+    OkResponse:
+      type: object
+      description: 无 body 业务数据时的成功响应
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+
+    SoftDeleteBody:
+      type: object
+      description: 软删除可选原因
+      properties:
+        reason:
+          type: string
+          description: 删除原因，展示于 deleteReason 字段
+
+    UpdateBugStatusBody:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/BugStatus"
+        note:
+          type: string
+          description: 状态变更说明；变更为 FIXED 时必填
+
+    UpdateFeatureStatusBody:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/FeatureStatus"
+        note:
+          type: string
+          description: 状态变更备注（可选）
+
+    RetestBody:
+      type: object
+      required: [result]
+      properties:
+        result:
+          $ref: "#/components/schemas/RetestResult"
+        note:
+          type: string
+          description: 复测备注
+
+    ActivityChange:
+      type: object
+      description: 活动记录中的字段变更条目（UPDATED 类型）
+      properties:
+        field:
+          type: string
+          description: 变更字段名（如 title、severity）
+        from:
+          type: string
+          nullable: true
+          description: 变更前的展示值
+        to:
+          type: string
+          nullable: true
+          description: 变更后的展示值
+
+    UserDisplayNameBody:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          description: 新的显示名称
+
+    UserApproveBody:
+      type: object
+      properties:
+        roleId:
+          type: string
+          description: 审批时分配的角色 ID
+
+    UserRoleBody:
+      type: object
+      properties:
+        roleId:
+          type: string
+          nullable: true
+          description: 角色 ID；null 表示移除角色
+
+    UserAdminBody:
+      type: object
+      properties:
+        isAdmin:
+          type: boolean
+          description: 是否为系统管理员
+
+    UserStatusBody:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/UserStatus"
+
+    Permission:
+      type: string
+      description: 系统权限枚举，在角色管理中配置
+      enum:
+        - CREATE_BUG
+        - RETEST_BUG
+        - MARK_BUG_FIXED
+        - ADD_BUG_EVIDENCE
+        - DELETE_BUG
+        - DELETE_BUG_ACTIVITY
+        - CREATE_FEATURE
+        - UPDATE_FEATURE
+        - DELETE_FEATURE
+        - DELETE_FEATURE_ACTIVITY
+        - VIEW_STATS
+        - MANAGE_SYSTEMS
+        - MANAGE_ROLES
+        - MANAGE_USERS
+        - BECOME_ITEM_OWNER
+        - DELEGATE_ITEM_RELATED
+        - DELEGATE_ITEM_OWNER
+
+    UserStatus:
+      type: string
+      description: 用户账号状态
+      enum: [PENDING, ACTIVE, DISABLED]
+
+    BugStatus:
+      type: string
+      description: "Bug 状态：OPEN（待修复）、FIXED（已修复）"
+      enum: [OPEN, FIXED]
+
+    FeatureStatus:
+      type: string
+      description: "功能状态：PLANNED（计划中）、IN_PROGRESS（进行中）、DONE（已完成）"
+      enum: [PLANNED, IN_PROGRESS, DONE]
+
+    Severity:
+      type: string
+      description: 严重程度 / 优先级（Bug severity 与 Feature priority 共用）
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+
+    RetestResult:
+      type: string
+      description: "APPEARED=仍复现，NOT_APPEARED=未复现"
+      enum: [APPEARED, NOT_APPEARED]
+
+    AssignableUser:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        displayName:
+          type: string
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Permission"
+        userCount:
+          type: integer
+        permissionCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        displayName:
+          type: string
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        isAdmin:
+          type: boolean
+        role:
+          oneOf:
+            - $ref: "#/components/schemas/Role"
+            - type: "null"
+
+    LoginBody:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          description: 登录用户名
+        password:
+          type: string
+          format: password
+          description: 登录密码
+
+    RegisterBody:
+      type: object
+      required: [username, password, displayName]
+      properties:
+        username:
+          type: string
+          description: 唯一用户名
+        password:
+          type: string
+          format: password
+          minLength: 6
+          description: 密码，至少 6 位
+        displayName:
+          type: string
+          description: 显示名称（中文名）
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+
+    RegisterResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        message:
+          type: string
+
+    TrackedSystem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        owner:
+          type: string
+          nullable: true
+        versionInfo:
+          type: string
+          nullable: true
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    SystemBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        owner:
+          type: string
+        versionInfo:
+          type: string
+
+    SystemUpdateBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        owner:
+          type: string
+          nullable: true
+        versionInfo:
+          type: string
+          nullable: true
+
+    PersonnelPatchBody:
+      type: object
+      description: 至少提供一个字段；动态鉴权规则见 PATCH /bugs|features/{id}/personnel
+      properties:
+        ownerId:
+          type: string
+          nullable: true
+          description: 委派负责人用户 ID；传 null 撤销负责人
+        addRelatedUserIds:
+          type: array
+          description: 要添加的相关人用户 ID 列表（须 ACTIVE，且不能含 owner）
+          items:
+            type: string
+        removeRelatedUserIds:
+          type: array
+          description: 要移除的相关人 ID；传自己的 ID 可自助退出
+          items:
+            type: string
+
+    Screenshot:
+      type: object
+      properties:
+        id:
+          type: string
+        path:
+          type: string
+          description: 相对路径，完整 URL 为 `{API_BASE}{path}` 或 `{API_BASE}/uploads/...`
+        originalName:
+          type: string
+        caption:
+          type: string
+          nullable: true
+        uploaderId:
+          type: string
+
+    RuntimeInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        environment:
+          type: string
+          nullable: true
+        logText:
+          type: string
+        authorId:
+          type: string
+        author:
+          $ref: "#/components/schemas/AssignableUser"
+
+    RuntimeInfoBody:
+      type: object
+      description: 创建时 title 与 logText 必填；更新时均为可选部分字段
+      properties:
+        title:
+          type: string
+          description: 运行信息标题（如「浏览器控制台」「服务端日志」）
+        environment:
+          type: string
+          description: 环境标识（staging、prod 等）
+        logText:
+          type: string
+          description: 日志或诊断文本内容
+
+    Retest:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        result:
+          $ref: "#/components/schemas/RetestResult"
+        note:
+          type: string
+          nullable: true
+
+    BugActivity:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - CREATED
+            - UPDATED
+            - STATUS_CHANGED
+            - DELETED
+            - SCREENSHOT_ADDED
+            - SCREENSHOT_REMOVED
+            - RUNTIME_INFO_ADDED
+            - RUNTIME_INFO_UPDATED
+            - RUNTIME_INFO_REMOVED
+            - RETEST_RECORDED
+            - OWNER_CLAIMED
+            - OWNER_DELEGATED
+            - OWNER_REVOKED
+            - RELATED_JOINED
+            - RELATED_ADDED
+            - RELATED_REMOVED
+        note:
+          type: string
+          nullable: true
+        fromStatus:
+          $ref: "#/components/schemas/BugStatus"
+        toStatus:
+          $ref: "#/components/schemas/BugStatus"
+        changes:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/ActivityChange"
+        context:
+          type: object
+          additionalProperties: true
+          description: 结构化上下文（人员类含 previousOwnerName、userNames 等）
+        createdAt:
+          type: string
+          format: date-time
+        actor:
+          $ref: "#/components/schemas/AssignableUser"
+
+    FeatureActivity:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - CREATED
+            - UPDATED
+            - STATUS_CHANGED
+            - DELETED
+            - OWNER_CLAIMED
+            - OWNER_DELEGATED
+            - OWNER_REVOKED
+            - RELATED_JOINED
+            - RELATED_ADDED
+            - RELATED_REMOVED
+        note:
+          type: string
+          nullable: true
+        fromStatus:
+          $ref: "#/components/schemas/FeatureStatus"
+        toStatus:
+          $ref: "#/components/schemas/FeatureStatus"
+        changes:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/ActivityChange"
+        context:
+          type: object
+          additionalProperties: true
+          description: 结构化上下文（人员类含 previousOwnerName、userNames 等）
+        createdAt:
+          type: string
+          format: date-time
+        actor:
+          $ref: "#/components/schemas/AssignableUser"
+
+    BugItem:
+      type: object
+      description: Bug 列表项或详情主体（详情另含 activities）
+      properties:
+        id:
+          type: string
+          description: Bug 唯一 ID（cuid）
+        title:
+          type: string
+          description: Bug 标题
+        description:
+          type: string
+          description: 问题描述
+        severity:
+          $ref: "#/components/schemas/Severity"
+        status:
+          $ref: "#/components/schemas/BugStatus"
+        environment:
+          type: string
+          nullable: true
+        steps:
+          type: string
+          nullable: true
+        expected:
+          type: string
+          nullable: true
+        actual:
+          type: string
+          nullable: true
+        system:
+          $ref: "#/components/schemas/TrackedSystem"
+        creator:
+          $ref: "#/components/schemas/AssignableUser"
+        owner:
+          oneOf:
+            - $ref: "#/components/schemas/AssignableUser"
+            - type: "null"
+        relatedUsers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssignableUser"
+        fixedBy:
+          oneOf:
+            - $ref: "#/components/schemas/AssignableUser"
+            - type: "null"
+        fixedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deletedBy:
+          oneOf:
+            - $ref: "#/components/schemas/AssignableUser"
+            - type: "null"
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deleteReason:
+          type: string
+          nullable: true
+        screenshots:
+          type: array
+          items:
+            $ref: "#/components/schemas/Screenshot"
+        runtimeInfos:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeInfo"
+        retests:
+          type: array
+          items:
+            $ref: "#/components/schemas/Retest"
+        screenshotCount:
+          type: integer
+        runtimeInfoCount:
+          type: integer
+        appearedCount:
+          type: integer
+        notAppearedCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    BugDetail:
+      allOf:
+        - $ref: "#/components/schemas/BugItem"
+        - type: object
+          properties:
+            activities:
+              type: array
+              items:
+                $ref: "#/components/schemas/BugActivity"
+
+    FeatureItem:
+      type: object
+      description: 功能列表项或详情主体（详情另含 activities）
+      properties:
+        id:
+          type: string
+          description: 功能唯一 ID（cuid）
+        title:
+          type: string
+          description: 功能标题
+        description:
+          type: string
+          description: 功能描述与验收标准
+        status:
+          $ref: "#/components/schemas/FeatureStatus"
+        priority:
+          $ref: "#/components/schemas/Severity"
+        system:
+          $ref: "#/components/schemas/TrackedSystem"
+        creator:
+          $ref: "#/components/schemas/AssignableUser"
+        owner:
+          oneOf:
+            - $ref: "#/components/schemas/AssignableUser"
+            - type: "null"
+        relatedUsers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssignableUser"
+        completedBy:
+          oneOf:
+            - $ref: "#/components/schemas/AssignableUser"
+            - type: "null"
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deletedBy:
+          oneOf:
+            - $ref: "#/components/schemas/AssignableUser"
+            - type: "null"
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deleteReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    FeatureDetail:
+      allOf:
+        - $ref: "#/components/schemas/FeatureItem"
+        - type: object
+          properties:
+            activities:
+              type: array
+              items:
+                $ref: "#/components/schemas/FeatureActivity"
+
+    CreateBugBody:
+      type: object
+      required: [systemId, title, description]
+      properties:
+        systemId:
+          type: string
+          description: 关联的被跟踪系统 ID（须未删除）
+        title:
+          type: string
+          description: Bug 标题
+        description:
+          type: string
+          description: 问题描述
+        severity:
+          $ref: "#/components/schemas/Severity"
+        environment:
+          type: string
+          description: 运行环境（OS、浏览器等）
+        steps:
+          type: string
+          description: 复现步骤
+        expected:
+          type: string
+          description: 期望结果
+        actual:
+          type: string
+          description: 实际结果
+        runtimeInfos:
+          type: array
+          description: 创建时一并添加的运行信息（各条需 title + logText）
+          items:
+            $ref: "#/components/schemas/RuntimeInfoBody"
+
+    UpdateBugBody:
+      type: object
+      properties:
+        systemId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/Severity"
+        environment:
+          type: string
+        steps:
+          type: string
+        expected:
+          type: string
+        actual:
+          type: string
+
+    CreateFeatureBody:
+      type: object
+      required: [systemId, title, description]
+      properties:
+        systemId:
+          type: string
+          description: 关联系统 ID
+        title:
+          type: string
+          description: 功能标题
+        description:
+          type: string
+          description: 功能描述与验收标准
+        priority:
+          $ref: "#/components/schemas/Severity"
+
+    UpdateFeatureBody:
+      type: object
+      properties:
+        systemId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          $ref: "#/components/schemas/Severity"
+
+    RoleBody:
+      type: object
+      properties:
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Permission"
+
+    PermissionDefinition:
+      type: object
+      properties:
+        code:
+          $ref: "#/components/schemas/Permission"
+        zhName:
+          type: string
+        enName:
+          type: string
+        group:
+          type: string
+        summary:
+          type: string
+        description:
+          type: string
+        surfaces:
+          type: array
+          items:
+            type: string
+        apis:
+          type: array
+          items:
+            type: string
+
+    RoleConfigDocument:
+      type: object
+      properties:
+        version:
+          type: integer
+        exportedAt:
+          type: string
+          format: date-time
+        roles:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              permissions:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+
+    KpiPersonStats:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/AssignableUser"
+        bugsCreated:
+          type: integer
+        bugsFixed:
+          type: integer
+        avgFixHours:
+          type: number
+          nullable: true
+        featuresCreated:
+          type: integer
+        featuresCompleted:
+          type: integer
+        retestsSubmitted:
+          type: integer
+        retestsAppeared:
+          type: integer
+        bugsOwned:
+          type: integer
+        featuresOwned:
+          type: integer
+        openBugsOwned:
+          type: integer
+        openFeaturesOwned:
+          type: integer
+        workloadScore:
+          type: number
+
+    KpiOverview:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        totals:
+          type: object
+          properties:
+            activeUsers:
+              type: integer
+            openBugs:
+              type: integer
+            fixedBugs:
+              type: integer
+            activeFeatures:
+              type: integer
+            doneFeatures:
+              type: integer
+        people:
+          type: array
+          items:
+            $ref: "#/components/schemas/KpiPersonStats"
