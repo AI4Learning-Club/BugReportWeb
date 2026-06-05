@@ -366,13 +366,15 @@ pre {
 }
 
 body:has(.permission-modal-backdrop) .app-shell .content,
-body:has(.bug-delete-modal-backdrop) .app-shell .content {
+body:has(.bug-delete-modal-backdrop) .app-shell .content,
+body:has(.screenshot-preview-backdrop) .app-shell .content {
   position: relative;
   z-index: 100;
 }
 
 body:has(.permission-modal-backdrop),
-body:has(.bug-delete-modal-backdrop) {
+body:has(.bug-delete-modal-backdrop),
+body:has(.screenshot-preview-backdrop) {
   overflow: hidden;
 }
 
@@ -468,12 +470,23 @@ tbody tr:hover td {
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 12px;
   animation: surface-enter 300ms var(--ease-smooth) both;
 }
 
 .toolbar select {
+  flex: 1 1 160px;
   max-width: 220px;
+  min-width: 0;
+}
+
+.toolbar .ghost,
+.toolbar .primary,
+.toolbar > a {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .primary,
@@ -1652,14 +1665,27 @@ button.activity-item.activity-item-clickable {
   transform: translateY(-2px);
 }
 
+.screenshot-open {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  transition: transform 220ms var(--ease-out);
+}
+
 .screenshots img {
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
   display: block;
+  pointer-events: none;
   transition: transform 220ms var(--ease-out);
 }
 
+.screenshots figure:hover .screenshot-open,
 .screenshots figure:hover img {
   transform: scale(1.03);
 }
@@ -1683,6 +1709,147 @@ button.activity-item.activity-item-clickable {
   border: 1px solid #e1e7ee;
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.screenshot-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+  background: rgba(12, 18, 28, 0.88);
+  animation: modal-backdrop-enter 180ms var(--ease-out) both;
+}
+
+.screenshot-preview-backdrop.closing {
+  animation: modal-backdrop-exit 180ms var(--ease-out) both;
+}
+
+.screenshot-preview-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 1280px);
+  height: 100%;
+  animation: modal-window-enter 220ms var(--ease-smooth) both;
+}
+
+.screenshot-preview-backdrop.closing .screenshot-preview-shell {
+  animation: modal-window-exit 180ms var(--ease-out) both;
+}
+
+.screenshot-preview-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.screenshot-preview-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  overflow: auto;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+.screenshot-preview-stage.is-zoomed {
+  cursor: grab;
+  touch-action: none;
+}
+
+.screenshot-preview-stage.is-zoomed:active {
+  cursor: grabbing;
+}
+
+.screenshot-preview-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: min(72dvh, calc(100dvh - 180px));
+  object-fit: contain;
+  border-radius: 8px;
+  background: #0f1720;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  transform-origin: center center;
+  transition: transform 160ms var(--ease-out);
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.screenshot-preview-caption {
+  width: 100%;
+  margin: 0;
+  padding: 0 8px;
+  color: #e8edf3;
+  font-size: 14px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.screenshot-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+}
+
+.screenshot-preview-toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.screenshot-preview-toolbar .icon-button {
+  width: 40px;
+  height: 40px;
+  background: #f4f7fa;
+}
+
+.screenshot-preview-scale {
+  min-width: 72px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #d8e2ea;
+  border-radius: 8px;
+  background: #fff;
+  color: #243140;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 180ms var(--ease-out),
+    background-color 180ms var(--ease-out);
+}
+
+.screenshot-preview-scale:hover {
+  border-color: #b8c9d8;
+  background: #f8fafc;
+}
+
+.screenshot-preview-copy {
+  min-height: 40px;
 }
 
 .inline-upload {
@@ -1814,6 +1981,70 @@ button.activity-item.activity-item-clickable {
 
 .user-table {
   min-width: 720px;
+  table-layout: fixed;
+}
+
+.user-table .user-col-identity {
+  width: 30%;
+}
+
+.user-table .user-col-status {
+  width: 14%;
+}
+
+.user-table .user-col-role {
+  width: 22%;
+}
+
+.user-table .user-col-admin {
+  width: 12%;
+}
+
+.user-table .user-col-actions {
+  width: 172px;
+}
+
+.user-table-wrap.table-wrap {
+  overflow-x: auto;
+}
+
+.user-table tbody tr {
+  transition: background-color 160ms var(--ease-out);
+}
+
+.user-table tbody tr:hover td {
+  background: #f3f8f6;
+}
+
+.user-table td {
+  vertical-align: middle;
+}
+
+.user-table .user-actions-cell {
+  padding: 10px 14px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.user-table th:last-child {
+  text-align: right;
+}
+
+.user-table .user-table-row-actions {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.user-table .user-table-row-actions .ghost.compact {
+  min-height: 34px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .user-identity,
@@ -1821,6 +2052,16 @@ button.activity-item.activity-item-clickable {
   display: grid;
   gap: 2px;
   min-width: 0;
+}
+
+.user-identity strong {
+  line-height: 1.35;
+}
+
+.user-status-cell,
+.user-admin-cell,
+.user-role-cell {
+  white-space: nowrap;
 }
 
 .user-inline-edit {
@@ -1846,6 +2087,7 @@ button.activity-item.activity-item-clickable {
 
 .user-handle {
   font-size: 13px;
+  line-height: 1.35;
 }
 
 .user-status-text {
@@ -1878,17 +2120,6 @@ button.activity-item.activity-item-clickable {
   background: #f8fafc;
 }
 
-.user-status-cell,
-.user-admin-cell,
-.user-role-cell {
-  white-space: nowrap;
-}
-
-.user-actions-cell {
-  width: 88px;
-  text-align: right;
-}
-
 .user-admin-toggle {
   display: inline-flex;
   align-items: center;
@@ -1904,11 +2135,6 @@ button.activity-item.activity-item-clickable {
   width: 18px;
   height: 18px;
   accent-color: #176b58;
-}
-
-.user-actions {
-  justify-content: flex-end;
-  white-space: nowrap;
 }
 
 .permission-grid {
@@ -3215,6 +3441,7 @@ button.activity-item.activity-item-clickable {
   .status:hover,
   .runtime-editor:hover,
   .screenshots figure:hover,
+  .screenshots figure:hover .screenshot-open,
   .screenshots figure:hover img,
   .runtime-list article:hover,
   .list-row:hover,

@@ -1,0 +1,10 @@
+# 追加到 mac_mini 的 /Users/ai4learning/Tools/frpc/frpc.toml
+# 将本机 BugReportWeb 后端 (127.0.0.1:19876) 穿透到 frps 公网 3001 端口
+# 公网访问: http://bug.ai4learningwhu.cn:3001
+
+[[proxies]]
+name = "bug-report-web-api-3001"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 19876
+remotePort = 3001

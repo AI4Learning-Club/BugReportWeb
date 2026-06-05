@@ -341,8 +341,18 @@ Bug 与功能的详情响应均含 `activities[]`。常见 `type`：
 
 ---
 
-## 7. 相关资源
+## 7. 提示词参考
+
+面向 ChatGPT、Claude、Cursor 等 AI 助手的**可复制提示词**（通用系统提示、登记 Bug / 功能、查询与协作场景，以及鉴权凭证引导）已独立成栏，见 **[提示词参考](/docs/prompts)**。
+
+本文档侧重技术决策树与禁止事项；粘贴到对话中的完整提示词模板请在提示词参考页复制。
+
+---
+
+## 8. 相关资源
 
 - **OpenAPI 规范**：`/openapi.yaml`（API 参考 Tab 可视化）
+- **[提示词参考](/docs/prompts)**：可复制系统提示词与任务提示词
+- **API 使用指南**：`/docs/api-guide`（工作流与撤销表）
 - **权限目录 API**：`GET /roles/permissions`（需 `MANAGE_ROLES` 或 `MANAGE_USERS`）
 - **项目开发约束**：仓库根目录 `AGENTS.md`

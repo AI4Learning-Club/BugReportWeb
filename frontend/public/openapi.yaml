@@ -138,6 +138,11 @@ info:
 
     上传限制：仅 `image/*`，单文件最大 50MB。
 
+    ## 提示词参考
+
+    面向 ChatGPT、Claude、Cursor 等 AI 助手的可复制提示词（含鉴权凭证收集、登记 Bug / 功能、查询与协作场景）见 Web 文档 **[提示词参考](/docs/prompts)**。
+    自主代理的技术决策树见 **[AI 代理指南](/docs/ai-guide)**。
+
 servers:
   - url: http://localhost:3001
     description: 本地开发（直连后端，默认端口 3001）

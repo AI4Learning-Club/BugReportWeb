@@ -18,6 +18,63 @@ function allowedCorsOrigins() {
     .filter(Boolean);
 }
 
+function browserRedirectPorts() {
+  return (process.env.API_BROWSER_REDIRECT_PORTS ?? '3001')
+    .split(',')
+    .map((port) => port.trim())
+    .filter(Boolean);
+}
+
+function resolveWebAppRedirectTarget(req: Request): string | null {
+  const webAppOrigin = process.env.WEB_APP_ORIGIN?.trim();
+  if (!webAppOrigin) {
+    return null;
+  }
+
+  let webAppUrl: URL;
+  try {
+    webAppUrl = new URL(webAppOrigin);
+  } catch {
+    return null;
+  }
+
+  const host = req.header('host') ?? '';
+  if (host === webAppUrl.host) {
+    return null;
+  }
+
+  const requestPort = host.includes(':') ? host.split(':').pop() : '';
+  if (!requestPort || !browserRedirectPorts().includes(requestPort)) {
+    return null;
+  }
+
+  return webAppOrigin.replace(/\/$/, '');
+}
+
+function installBrowserRouteRedirects(app: { use: (handler: (req: Request, res: Response, next: NextFunction) => void) => void }) {
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method !== 'GET') {
+      next();
+      return;
+    }
+
+    const webAppOrigin = resolveWebAppRedirectTarget(req);
+    if (!webAppOrigin) {
+      next();
+      return;
+    }
+
+    const path = req.path.replace(/\/$/, '') || '/';
+    if (path !== '/login') {
+      next();
+      return;
+    }
+
+    const suffix = req.originalUrl.slice(req.path.length);
+    res.redirect(302, `${webAppOrigin}/login${suffix}`);
+  });
+}
+
 function resolveFrontendDist() {
   const candidates = [
     join(process.cwd(), 'frontend', 'dist'),
@@ -68,6 +125,7 @@ async function bootstrap() {
   });
   app.use(json({ limit: '2mb' }));
   app.use(urlencoded({ extended: true }));
+  installBrowserRouteRedirects(app);
   app.use('/uploads', expressStatic(join(process.cwd(), 'uploads')));
   const frontendDist = resolveFrontendDist();
   if (frontendDist) {

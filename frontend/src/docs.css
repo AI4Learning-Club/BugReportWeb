@@ -643,6 +643,111 @@
   background: var(--docs-surface);
 }
 
+.prompts-env-banner {
+  margin: 0 0 1.75rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--docs-border);
+  border-radius: 0.65rem;
+  background: var(--docs-accent-soft);
+}
+
+.prompts-env-banner-title {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--docs-text);
+}
+
+.prompts-env-banner-desc {
+  margin: 0 0 0.85rem;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--docs-muted);
+}
+
+.prompts-env-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1.25rem;
+  margin: 0;
+}
+
+.prompts-env-grid > div {
+  min-width: 0;
+}
+
+.prompts-env-grid dt {
+  margin: 0 0 0.15rem;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--docs-muted);
+}
+
+.prompts-env-grid dd {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.prompts-env-grid a {
+  color: var(--docs-accent);
+  text-decoration: none;
+  transition: color 180ms var(--ease-out);
+}
+
+.prompts-env-grid a:hover {
+  text-decoration: underline;
+}
+
+.prompt-copy-wrap {
+  position: relative;
+  margin: 0.85rem 0 1.25rem;
+}
+
+.prompt-copy-wrap .prompt-copy-block {
+  margin: 0;
+  padding-top: 2.35rem;
+}
+
+.prompt-copy-btn {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid rgba(226, 232, 240, 0.2);
+  border-radius: 0.4rem;
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 180ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    color 180ms var(--ease-out);
+}
+
+.prompt-copy-btn:hover {
+  background: rgba(30, 41, 59, 0.92);
+  border-color: rgba(226, 232, 240, 0.35);
+}
+
+.prompt-copy-btn.copied {
+  color: #86efac;
+  border-color: rgba(134, 239, 172, 0.35);
+}
+
 .ai-guide-layout {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -859,6 +964,10 @@
     grid-template-columns: 1fr;
     gap: 1rem;
     padding-top: 1.25rem;
+  }
+
+  .prompts-env-grid {
+    grid-template-columns: 1fr;
   }
 
   .ai-guide-toc {

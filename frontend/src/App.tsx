@@ -69,6 +69,7 @@ import DocsPage from './docs/DocsPage';
 import { RuntimeInfoFields } from './RuntimeInfoFields';
 import { readError } from './errorUtils';
 import { MarkdownContent } from './MarkdownContent';
+import { ScreenshotGrid } from './ScreenshotViews';
 import { notifyError } from './ToastProvider';
 
 type AuthContextValue = {
@@ -613,17 +614,17 @@ function NewBugPage() {
           event.currentTarget.value = '';
         }} /></label>
         {selectedScreenshots.length > 0 && (
-          <div className="screenshots pending-screenshots">
-            {selectedScreenshots.map((screenshot) => (
-              <figure key={screenshot.id}>
-                <img src={screenshot.url} alt={screenshot.file.name} />
-                <figcaption>{screenshot.file.name}</figcaption>
-                <button className="icon-button" type="button" onClick={() => removeSelectedScreenshot(screenshot.id)} title="移除截图">
-                  <Trash2 size={16} />
-                </button>
-              </figure>
-            ))}
-          </div>
+          <ScreenshotGrid
+            className="pending-screenshots"
+            items={selectedScreenshots.map((screenshot) => ({
+              id: screenshot.id,
+              src: screenshot.url,
+              label: screenshot.file.name
+            }))}
+            emptyLabel="暂无待上传截图"
+            canDelete
+            onDelete={removeSelectedScreenshot}
+          />
         )}
         <section className="subsection">
           <div className="subsection-header">
@@ -867,24 +868,17 @@ function BugDetailPage() {
                   </button>
                 )}
               </div>
-              <div className="screenshots">
-                {bug.screenshots.map((shot) => (
-                  <figure key={shot.id}>
-                    <img src={assetUrl(shot.path)} alt={shot.caption ?? shot.originalName} />
-                    <figcaption>{shot.caption ?? shot.originalName}</figcaption>
-                    {canAddEvidence && !bug.deletedAt && (
-                      <button
-                        className="icon-button"
-                        onClick={() => mutate(() => api('/bugs/' + bug.id + '/screenshots/' + shot.id, { method: 'DELETE' }))}
-                        title="删除截图"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </figure>
-                ))}
-                {bug.screenshots.length === 0 && <p className="muted">暂无截图</p>}
-              </div>
+              <ScreenshotGrid
+                items={bug.screenshots.map((shot) => ({
+                  id: shot.id,
+                  src: assetUrl(shot.path),
+                  label: shot.caption ?? shot.originalName
+                }))}
+                canDelete={canAddEvidence && !bug.deletedAt}
+                onDelete={(screenshotId) =>
+                  mutate(() => api('/bugs/' + bug.id + '/screenshots/' + screenshotId, { method: 'DELETE' }))
+                }
+              />
             </div>
           </section>
           <section className="panel bug-runtime-panel">
@@ -1572,17 +1566,17 @@ function NewFeaturePage() {
           <input type="file" accept="image/*" multiple onChange={(event) => addSelectedScreenshots(event.target.files)} />
         </label>
         {selectedScreenshots.length > 0 && (
-          <div className="screenshots pending-screenshots">
-            {selectedScreenshots.map((screenshot) => (
-              <figure key={screenshot.id}>
-                <img src={screenshot.url} alt={screenshot.file.name} />
-                <figcaption>{screenshot.file.name}</figcaption>
-                <button className="icon-button" type="button" onClick={() => removeSelectedScreenshot(screenshot.id)} title="移除截图">
-                  <Trash2 size={16} />
-                </button>
-              </figure>
-            ))}
-          </div>
+          <ScreenshotGrid
+            className="pending-screenshots"
+            items={selectedScreenshots.map((screenshot) => ({
+              id: screenshot.id,
+              src: screenshot.url,
+              label: screenshot.file.name
+            }))}
+            emptyLabel="暂无待上传截图"
+            canDelete
+            onDelete={removeSelectedScreenshot}
+          />
         )}
         <button className="primary" type="submit"><Save size={16} />保存</button>
       </form>
@@ -1755,24 +1749,17 @@ function FeatureDetailPage() {
                   </button>
                 )}
               </div>
-              <div className="screenshots">
-                {screenshots.map((shot) => (
-                  <figure key={shot.id}>
-                    <img src={assetUrl(shot.path)} alt={shot.caption ?? shot.originalName} />
-                    <figcaption>{shot.caption ?? shot.originalName}</figcaption>
-                    {canAddEvidence && !feature.deletedAt && (
-                      <button
-                        className="icon-button"
-                        onClick={() => mutate(() => api(`/features/${feature.id}/screenshots/${shot.id}`, { method: 'DELETE' }))}
-                        title="删除截图"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </figure>
-                ))}
-                {screenshots.length === 0 && <p className="muted">暂无截图</p>}
-              </div>
+              <ScreenshotGrid
+                items={screenshots.map((shot) => ({
+                  id: shot.id,
+                  src: assetUrl(shot.path),
+                  label: shot.caption ?? shot.originalName
+                }))}
+                canDelete={canAddEvidence && !feature.deletedAt}
+                onDelete={(screenshotId) =>
+                  mutate(() => api(`/features/${feature.id}/screenshots/${screenshotId}`, { method: 'DELETE' }))
+                }
+              />
             </div>
             <FeatureProgressPanel
               feature={feature}
@@ -2231,8 +2218,15 @@ function AdminPage() {
         {activeTab === 'users' && canManageUsers && (
           <div className="panel">
           <h2>用户</h2>
-          <div className="table-wrap">
+          <div className="table-wrap user-table-wrap">
             <table className="user-table">
+              <colgroup>
+                <col className="user-col-identity" />
+                <col className="user-col-status" />
+                <col className="user-col-role" />
+                <col className="user-col-admin" />
+                <col className="user-col-actions" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>用户</th>
@@ -2482,7 +2476,7 @@ function UserRow({
           {user.isAdmin ? '是' : '否'}
         </td>
         <td className="user-actions-cell" data-label="操作">
-          <div className="personnel-actions">
+          <div className="user-table-row-actions">
             <button className="ghost compact" type="button" onClick={() => setManageOpen(true)}>
               管理
             </button>

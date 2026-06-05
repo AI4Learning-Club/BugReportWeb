@@ -20,7 +20,7 @@ export function assetUrl(path: string) {
     return path;
   }
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${window.location.origin}${normalizedPath}`;
+  return `${API_BASE}${normalizedPath}`;
 }
 
 export type Permission =

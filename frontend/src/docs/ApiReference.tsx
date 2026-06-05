@@ -198,7 +198,8 @@ function ApiReferenceContent({ spec }: { spec: ParsedOpenApi }) {
         <p className="api-ref-more">
           工作流、撤销操作与活动类型详见{' '}
           <Link to="/docs/api-guide">API 使用指南</Link>；面向 AI 代理的决策树见{' '}
-          <Link to="/docs/ai-guide">AI 代理指南</Link>。
+          <Link to="/docs/ai-guide">AI 代理指南</Link>；可复制到 AI 对话的提示词见{' '}
+          <Link to="/docs/prompts">提示词参考</Link>。
         </p>
       </section>
 

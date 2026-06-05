@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import ApiReference from './ApiReference';
 import ApiGuide from './ApiGuide';
 import AiGuide from './AiGuide';
+import PromptsGuide from './PromptsGuide';
 import '../docs.css';
 
 export default function DocsPage() {
@@ -26,6 +27,9 @@ export default function DocsPage() {
             <NavLink to="/docs/ai-guide" className={({ isActive }) => (isActive ? 'active' : undefined)}>
               AI 代理指南
             </NavLink>
+            <NavLink to="/docs/prompts" className={({ isActive }) => (isActive ? 'active' : undefined)}>
+              提示词参考
+            </NavLink>
           </nav>
         </div>
       </header>
@@ -34,6 +38,7 @@ export default function DocsPage() {
           <Route index element={<ApiReference />} />
           <Route path="api-guide" element={<ApiGuide />} />
           <Route path="ai-guide" element={<AiGuide />} />
+          <Route path="prompts" element={<PromptsGuide />} />
           <Route path="*" element={<Navigate to="/docs" replace />} />
         </Routes>
       </main>
