@@ -110,7 +110,8 @@ const user = await meRes.json();
 | `VIEW_STATS` | 查看 KPI | `GET /stats/kpi` |
 | `MANAGE_SYSTEMS` | 系统管理 | `POST/PATCH/DELETE /systems*` |
 | `MANAGE_ROLES` | 角色管理 | `GET /roles/export`, `POST /roles/import`, `POST/PATCH/DELETE /roles*` |
-| `MANAGE_USERS` | 用户管理 | 整个 `/users/*`；`GET /roles`, `GET /roles/permissions`（与 MANAGE_ROLES 二选一） |
+| `MANAGE_USERS` | 用户管理 | `GET/PATCH /users/*`；`GET /roles`, `GET /roles/permissions`（与 MANAGE_ROLES 二选一） |
+| `DELETE_DISABLED_USER` | 删除已禁用用户 | `DELETE /users/:id`（仅 DISABLED 且无关联记录） |
 | `BECOME_ITEM_OWNER` | 成为负责人 | `POST /bugs/:id/personnel/claim-owner`, `POST /features/:id/personnel/claim-owner` |
 | `DELEGATE_ITEM_RELATED` | 委派相关人 | `PATCH /bugs/:id/personnel`, `PATCH /features/:id/personnel`（按 body 字段） |
 | `DELEGATE_ITEM_OWNER` | 委派负责人 | `PATCH /bugs/:id/personnel`, `PATCH /features/:id/personnel`（按 body 字段） |

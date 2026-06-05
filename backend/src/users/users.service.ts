@@ -96,6 +96,53 @@ export class UsersService {
     });
   }
 
+  async deleteDisabled(id: string, actorId: string) {
+    const user = await this.ensureUser(id);
+    if (user.status !== UserStatus.DISABLED) {
+      throw new BadRequestException('Only disabled users can be deleted');
+    }
+    if (id === actorId) {
+      throw new BadRequestException('Users cannot delete their own account');
+    }
+
+    const [
+      createdBugs,
+      uploadedScreenshots,
+      authoredRuntimeInfos,
+      retests,
+      bugActivities,
+      createdFeatures,
+      featureActivities,
+      featureScreenshots
+    ] = await Promise.all([
+      this.prisma.bug.count({ where: { creatorId: id } }),
+      this.prisma.bugScreenshot.count({ where: { uploaderId: id } }),
+      this.prisma.bugRuntimeInfo.count({ where: { authorId: id } }),
+      this.prisma.bugRetest.count({ where: { userId: id } }),
+      this.prisma.bugActivity.count({ where: { actorId: id } }),
+      this.prisma.feature.count({ where: { creatorId: id } }),
+      this.prisma.featureActivity.count({ where: { actorId: id } }),
+      this.prisma.featureScreenshot.count({ where: { uploaderId: id } })
+    ]);
+
+    const relatedRecords =
+      createdBugs +
+      uploadedScreenshots +
+      authoredRuntimeInfos +
+      retests +
+      bugActivities +
+      createdFeatures +
+      featureActivities +
+      featureScreenshots;
+
+    if (relatedRecords > 0) {
+      throw new BadRequestException('Cannot delete user with existing bug or feature records');
+    }
+
+    await this.prisma.user.delete({ where: { id } });
+    return { ok: true };
+  }
+
   private async ensureUser(id: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {

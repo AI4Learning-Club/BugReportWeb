@@ -2112,6 +2112,7 @@ function AdminPage() {
   const canManageSystems = hasPermission(user, 'MANAGE_SYSTEMS');
   const canManageRoles = hasPermission(user, 'MANAGE_ROLES');
   const canManageUsers = hasPermission(user, 'MANAGE_USERS');
+  const canDeleteDisabledUser = hasPermission(user, 'DELETE_DISABLED_USER');
   const adminTabs = useMemo(
     () => [
       ...(canManageSystems ? [{ id: 'systems' as const, label: '系统' }] : []),
@@ -2243,7 +2244,14 @@ function AdminPage() {
               </thead>
               <tbody>
                 {users.map((item) => (
-                  <UserRow key={item.id} user={item} roles={roles} onMutate={mutateOrThrow} />
+                  <UserRow
+                    key={item.id}
+                    user={item}
+                    roles={roles}
+                    onMutate={mutateOrThrow}
+                    canDeleteDisabledUser={canDeleteDisabledUser}
+                    currentUserId={user?.id}
+                  />
                 ))}
               </tbody>
             </table>
@@ -2413,14 +2421,21 @@ function SystemRow({
 function UserRow({
   user,
   roles,
-  onMutate
+  onMutate,
+  canDeleteDisabledUser,
+  currentUserId
 }: {
   user: User;
   roles: Role[];
   onMutate: (action: () => Promise<unknown>) => Promise<void>;
+  canDeleteDisabledUser: boolean;
+  currentUserId?: string;
 }) {
   const [manageOpen, setManageOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const showDelete =
+    canDeleteDisabledUser && user.status === 'DISABLED' && user.id !== currentUserId;
 
   async function run(action: () => Promise<unknown>, closeOnSuccess = false) {
     setSubmitting(true);
@@ -2429,6 +2444,18 @@ function UserRow({
       if (closeOnSuccess) {
         setManageOpen(false);
       }
+    } catch (actionError) {
+      notifyError(readError(actionError));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function confirmDelete() {
+    setSubmitting(true);
+    try {
+      await onMutate(() => api(`/users/${user.id}`, { method: 'DELETE' }));
+      setDeleteOpen(false);
     } catch (actionError) {
       notifyError(readError(actionError));
     } finally {
@@ -2455,11 +2482,36 @@ function UserRow({
           {user.isAdmin ? '是' : '否'}
         </td>
         <td className="user-actions-cell" data-label="操作">
-          <button className="ghost compact" type="button" onClick={() => setManageOpen(true)}>
-            管理
-          </button>
+          <div className="personnel-actions">
+            <button className="ghost compact" type="button" onClick={() => setManageOpen(true)}>
+              管理
+            </button>
+            {showDelete && (
+              <button className="ghost compact danger" type="button" onClick={() => setDeleteOpen(true)}>
+                <Trash2 size={16} />
+                删除
+              </button>
+            )}
+          </div>
         </td>
       </tr>
+      {deleteOpen && (
+        <ConfirmDeleteDialog
+          title="删除用户"
+          description="永久删除后该账号将无法恢复，用户名可被重新注册。"
+          targetLabel="目标用户"
+          targetName={`${user.displayName} (@${user.username})`}
+          warning="仅可删除已禁用且无 Bug/功能创建或活动记录的用户。"
+          submitting={submitting}
+          confirmLabel="确认删除用户"
+          onClose={() => {
+            if (!submitting) {
+              setDeleteOpen(false);
+            }
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
+      )}
       {manageOpen && (
         <UserManageDialog
           user={user}

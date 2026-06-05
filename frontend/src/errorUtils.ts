@@ -83,6 +83,9 @@ const ERROR_MESSAGE_MAP: Record<string, string> = {
   'Admins cannot remove their own admin flag': '管理员不能取消自己的管理员身份',
   'status is required': '请填写状态',
   'Users cannot disable their own account': '不能停用自己的账号',
+  'Only disabled users can be deleted': '仅可删除已禁用的用户',
+  'Users cannot delete their own account': '不能删除自己的账号',
+  'Cannot delete user with existing bug or feature records': '该用户仍有关联的 Bug 或功能记录，无法删除',
   'User not found': '用户不存在',
   'Cannot delete a system that already has bugs': '无法删除已有 bug 的系统',
   'System not found': '系统不存在'

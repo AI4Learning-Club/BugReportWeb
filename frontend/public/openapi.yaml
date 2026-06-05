@@ -75,6 +75,7 @@ info:
     | `MANAGE_SYSTEMS` | 系统管理 | `/systems` 写操作 |
     | `MANAGE_ROLES` | 角色管理 | `/roles` 写操作与导入导出 |
     | `MANAGE_USERS` | 用户管理 | `/users` |
+    | `DELETE_DISABLED_USER` | 删除已禁用用户 | `DELETE /users/{id}` |
 
     ## 错误响应
 
@@ -1965,6 +1966,42 @@ paths:
           $ref: "#/components/responses/Forbidden"
 
   /users/{id}:
+    delete:
+      tags: [Users]
+      summary: 删除已禁用用户
+      description: |
+        永久删除 `status=DISABLED` 的用户账号。需 `DELETE_DISABLED_USER`（admin 豁免权限检查但仍需 JWT）。
+        - 仅 `DISABLED` 状态可删；`ACTIVE` / `PENDING` → `400 Only disabled users can be deleted`
+        - 不能删除自己 → `400 Users cannot delete their own account`
+        - 若用户仍有关联 Bug/功能创建、截图、复测或活动记录 → `400 Cannot delete user with existing bug or feature records`
+      x-permissions: [DELETE_DISABLED_USER]
+      x-service-rules:
+        - 仅 DISABLED 状态可删
+        - 不能删除自己
+        - 有关联 Bug/功能记录时拒绝
+      operationId: usersDeleteDisabled
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     patch:
       tags: [Users]
       summary: 更新用户显示名
@@ -2528,6 +2565,7 @@ components:
         - MANAGE_SYSTEMS
         - MANAGE_ROLES
         - MANAGE_USERS
+        - DELETE_DISABLED_USER
         - BECOME_ITEM_OWNER
         - DELEGATE_ITEM_RELATED
         - DELEGATE_ITEM_OWNER

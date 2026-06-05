@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Req } from '@nestjs/common';
 import { Permission, UserStatus } from '@prisma/client';
 import { Permissions } from '../auth/permissions.decorator';
 import { RequestWithUser } from '../auth/auth.types';
@@ -45,5 +45,11 @@ export class UsersController {
     @Req() request: RequestWithUser
   ) {
     return this.usersService.updateStatus(id, body, request.user.id);
+  }
+
+  @Delete(':id')
+  @Permissions(Permission.DELETE_DISABLED_USER)
+  deleteDisabled(@Param('id') id: string, @Req() request: RequestWithUser) {
+    return this.usersService.deleteDisabled(id, request.user.id);
   }
 }

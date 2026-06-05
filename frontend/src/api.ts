@@ -39,6 +39,7 @@ export type Permission =
   | 'MANAGE_SYSTEMS'
   | 'MANAGE_ROLES'
   | 'MANAGE_USERS'
+  | 'DELETE_DISABLED_USER'
   | 'BECOME_ITEM_OWNER'
   | 'DELEGATE_ITEM_RELATED'
   | 'DELEGATE_ITEM_OWNER';
@@ -381,6 +382,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'MANAGE_SYSTEMS',
   'MANAGE_ROLES',
   'MANAGE_USERS',
+  'DELETE_DISABLED_USER',
   'BECOME_ITEM_OWNER',
   'DELEGATE_ITEM_RELATED',
   'DELEGATE_ITEM_OWNER'
@@ -402,6 +404,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_SYSTEMS: '系统管理',
   MANAGE_ROLES: '角色管理',
   MANAGE_USERS: '用户管理',
+  DELETE_DISABLED_USER: '删除已禁用用户',
   BECOME_ITEM_OWNER: '成为负责人',
   DELEGATE_ITEM_RELATED: '委派相关人',
   DELEGATE_ITEM_OWNER: '委派负责人'

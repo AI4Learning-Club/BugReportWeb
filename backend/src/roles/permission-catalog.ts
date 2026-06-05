@@ -171,6 +171,17 @@ export const PERMISSION_CATALOG: PermissionCatalogItem[] = [
     apis: ['GET /users', 'PATCH /users/:id/*']
   },
   {
+    code: Permission.DELETE_DISABLED_USER,
+    zhName: '删除已禁用用户',
+    enName: 'Delete Disabled User',
+    group: '后台管理',
+    summary: '允许永久删除已禁用的用户账号。',
+    description:
+      '可在用户管理页彻底删除 status 为 DISABLED 的账号。若用户仍有关联的 Bug/功能创建或活动记录则无法删除。不能删除自己。',
+    surfaces: ['管理后台 / 用户'],
+    apis: ['DELETE /users/:id']
+  },
+  {
     code: Permission.BECOME_ITEM_OWNER,
     zhName: '成为负责人',
     enName: 'Become Item Owner',

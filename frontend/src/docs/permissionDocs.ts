@@ -108,6 +108,12 @@ export const PERMISSION_DOCS: PermissionDoc[] = [
     apis: ['GET /users', 'PATCH /users/:id/*']
   },
   {
+    code: 'DELETE_DISABLED_USER',
+    group: '后台管理',
+    summary: '永久删除已禁用用户',
+    apis: ['DELETE /users/:id']
+  },
+  {
     code: 'BECOME_ITEM_OWNER',
     group: '人员分配',
     summary: '自荐成为负责人',

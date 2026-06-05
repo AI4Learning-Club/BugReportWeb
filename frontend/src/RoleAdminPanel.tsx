@@ -184,6 +184,16 @@ const PERMISSION_UI_META: Record<Permission, Omit<PermissionView, keyof Permissi
     requiresApproval: true,
     dataScope: '全部用户账号和审批流'
   },
+  DELETE_DISABLED_USER: {
+    scope: 'tenant',
+    scopeLabel: '应用身份权限',
+    scopeToken: 'tenant_access_token',
+    module: '后台管理',
+    category: '用户与审批',
+    permissionType: '管理',
+    requiresApproval: true,
+    dataScope: '已禁用用户账号'
+  },
   BECOME_ITEM_OWNER: {
     scope: 'user',
     scopeLabel: '用户身份权限',
